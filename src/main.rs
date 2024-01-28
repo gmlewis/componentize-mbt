@@ -1,9 +1,7 @@
-mod bindgen;
 mod build;
 
 use anyhow::{Context, Result};
-use clap::{Args, Parser, Subcommand};
-use std::io::Write;
+use clap::Parser;
 use std::path::PathBuf;
 use wit_bindgen_core::Files;
 use wit_parser::{Resolve, UnresolvedPackage};
@@ -13,7 +11,7 @@ use wit_parser::{Resolve, UnresolvedPackage};
 enum Opt {
     BindGen {
         #[clap(flatten)]
-        opts: bindgen::Opts,
+        opts: wit_bindgen_mbt::Opts,
         #[clap(flatten)]
         args: Common,
     },

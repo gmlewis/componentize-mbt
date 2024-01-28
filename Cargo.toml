@@ -1,12 +1,29 @@
 [package]
 name = "componentize-mbt"
 version = "0.1.0"
+edition = { workspace = true }
+
+[workspace]
+
+[workspace.package]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0.79"
 clap = { version = "4.4.18", features = ["derive"] }
+heck = { version = "0.4.1", features = ["unicode"] }
+wasm-metadata = "0.10.16"
+wit-component = "0.20.0"
 wit-bindgen-core = "0.16.0"
 wit-parser = "0.13.1"
+wit-bindgen-mbt = { path = "crates/mbt", version = "0.1.0", features = ["clap"] }
+
+[[bin]]
+name = "componentize-mbt"
+
+[dependencies]
+anyhow = { workspace = true }
+wit-bindgen-core = { workspace = true }
+clap = { workspace = true }
+wit-parser = { workspace = true }
+wit-bindgen-mbt = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "wit-bindgen-mbt"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+heck = { workspace = true }
+wasm-metadata = { workspace = true }
+wit-bindgen-core = { workspace = true }
+wit-component = { workspace = true }
+clap = { workspace = true, optional = true }
