@@ -1,6 +1,6 @@
 use crate::bindgen::FunctionBindgen;
 use crate::{
-    int_repr, to_rust_ident, to_upper_camel_case, wasm_type, Direction, ExportKey, FnSig,
+    int_repr, to_mbt_ident, to_upper_camel_case, wasm_type, Direction, ExportKey, FnSig,
     Identifier, InterfaceName, Ownership, MbtFlagsRepr, MoonBit, TypeMode,
 };
 use anyhow::Result;
@@ -207,9 +207,9 @@ impl InterfaceGenerator<'_> {
 
     pub fn start_append_submodule(&mut self, name: &WorldKey) -> (String, Vec<String>) {
         let snake = match name {
-            WorldKey::Name(name) => to_rust_ident(name),
+            WorldKey::Name(name) => to_mbt_ident(name),
             WorldKey::Interface(id) => {
-                to_rust_ident(self.resolve.interfaces[*id].name.as_ref().unwrap())
+                to_mbt_ident(self.resolve.interfaces[*id].name.as_ref().unwrap())
             }
         };
         let module_path = crate::compute_module_path(name, &self.resolve, !self.in_import);
@@ -449,12 +449,12 @@ impl InterfaceGenerator<'_> {
         let path = if let Some((namespace, pkg_name)) = pkg {
             format!(
                 "{}::{}::{}",
-                to_rust_ident(&namespace),
-                to_rust_ident(&pkg_name),
-                to_rust_ident(name),
+                to_mbt_ident(&namespace),
+                to_mbt_ident(&pkg_name),
+                to_mbt_ident(name),
             )
         } else {
-            to_rust_ident(name)
+            to_mbt_ident(name)
         };
 
         let name = resource
@@ -591,7 +591,7 @@ impl InterfaceGenerator<'_> {
         } else {
             &func.name
         };
-        self.push_str(&to_rust_ident(func_name));
+        self.push_str(&to_mbt_ident(func_name));
         if let Some(generics) = &sig.generics {
             self.push_str(generics);
         }
@@ -606,7 +606,7 @@ impl InterfaceGenerator<'_> {
                 params.push("self".to_string());
                 continue;
             }
-            let name = to_rust_ident(name);
+            let name = to_mbt_ident(name);
             self.push_str(&name);
             params.push(name);
             self.push_str(": ");
@@ -989,7 +989,7 @@ impl InterfaceGenerator<'_> {
                     self.push_str(&format!("#[component(name = \"{}\")]\n", field.name));
                 }
                 self.push_str("pub ");
-                self.push_str(&to_rust_ident(&field.name));
+                self.push_str(&to_mbt_ident(&field.name));
                 self.push_str(": ");
                 self.print_ty(&field.ty, mode);
                 self.push_str(",\n");
@@ -1010,7 +1010,7 @@ impl InterfaceGenerator<'_> {
                 self.push_str(&format!(
                     ".field(\"{}\", &self.{})",
                     field.name,
-                    to_rust_ident(&field.name)
+                    to_mbt_ident(&field.name)
                 ));
             }
             self.push_str(".finish()\n");

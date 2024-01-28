@@ -1,4 +1,4 @@
-use crate::{int_repr, to_rust_ident, wasm_type, Direction, InterfaceGenerator, MbtFlagsRepr};
+use crate::{int_repr, to_mbt_ident, wasm_type, Direction, InterfaceGenerator, MbtFlagsRepr};
 use heck::*;
 use std::fmt::Write as _;
 use std::mem;
@@ -131,7 +131,7 @@ impl<'a, 'b> FunctionBindgen<'a, 'b> {
         self.push_str(&name);
         self.push_str("{ ");
         for field in record.fields.iter() {
-            let name = to_rust_ident(&field.name);
+            let name = to_mbt_ident(&field.name);
             let arg = format!("{}{}", name, tmp);
             self.push_str(&name);
             self.push_str(":");
@@ -154,7 +154,7 @@ impl<'a, 'b> FunctionBindgen<'a, 'b> {
         let mut result = self.typename_lift(id);
         result.push_str("{\n");
         for (field, val) in ty.fields.iter().zip(operands) {
-            result.push_str(&to_rust_ident(&field.name));
+            result.push_str(&to_mbt_ident(&field.name));
             result.push_str(": ");
             result.push_str(val);
             result.push_str(",\n");
@@ -819,7 +819,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                     FunctionKind::Freestanding => {
                         self.push_str(&format!(
                             "<_GuestImpl as Guest>::{}",
-                            to_rust_ident(&func.name)
+                            to_mbt_ident(&func.name)
                         ));
                     }
                     FunctionKind::Method(ty) | FunctionKind::Static(ty) => {
@@ -830,7 +830,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                                 .as_deref()
                                 .unwrap()
                                 .to_upper_camel_case(),
-                            to_rust_ident(func.item_name())
+                            to_mbt_ident(func.item_name())
                         ));
                     }
                     FunctionKind::Constructor(ty) => {
