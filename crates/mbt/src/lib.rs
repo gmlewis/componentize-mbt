@@ -461,46 +461,6 @@ impl WorldGenerator for MoonBit {
         let exports = mem::take(&mut self.export_modules);
         self.emit_modules(exports);
 
-        self.src.push_str("\n#[cfg(target_arch = \"wasm32\")]\n");
-
-        // The custom section name here must start with "component-type" but
-        // otherwise is attempted to be unique here to ensure that this doesn't get
-        // concatenated to other custom sections by LLD by accident since LLD will
-        // concatenate custom sections of the same name.
-        self.src
-            .push_str(&format!("#[link_section = \"component-type:{}\"]\n", name,));
-
-        let mut producers = wasm_metadata::Producers::empty();
-        producers.add(
-            "processed-by",
-            env!("CARGO_PKG_NAME"),
-            env!("CARGO_PKG_VERSION"),
-        );
-
-        let component_type = wit_component::metadata::encode(
-            resolve,
-            world,
-            wit_component::StringEncoding::UTF8,
-            Some(&producers),
-        )
-        .unwrap();
-
-        self.src.push_str("#[doc(hidden)]\n");
-        self.src.push_str(&format!(
-            "pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; {}] = ",
-            component_type.len()
-        ));
-        self.src.push_str(&format!("{:?};\n", component_type));
-
-        self.src.push_str(
-            "
-            #[inline(never)]
-            #[doc(hidden)]
-            #[cfg(target_arch = \"wasm32\")]
-            pub fn __link_section() {}
-        ",
-        );
-
         if self.opts.stubs {
             self.src.push_str("\n#[derive(Debug)]\npub struct Stub;\n");
             let world_id = world;
