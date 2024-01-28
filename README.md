@@ -9,6 +9,68 @@
 读取 [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
 文件，生成 MoonBit 的 binding 代码。
 
+### Import 生成示例
+
+```
+pub(readonly) struct Wasi {
+  clocks : WasiClocks
+}
+
+pub(readonly) struct WasiClocks {
+  monotonic_clock : WasiClocksMonotonicClock
+}
+
+pub(readonly) type WasiClocksMonotonicClock Unit
+
+pub fn now(self : WasiClocksMonotonicClock) -> Int64 {
+  // Impl
+  0L
+}
+
+pub let wasi : Wasi = Wasi::{
+  clocks: WasiClocks::{ monotonic_clock: WasiClocksMonotonicClock(()) },
+}
+
+test "use import" {
+  if wasi.clocks.monotonic_clock.now() != 0L {
+    abort("failed")
+  }
+}
+```
+
+### Export 生成示例
+
+```
+pub trait ExportsWasiClocksMonotonicClock  {
+  handle(Self) -> Int64
+}
+
+fn wrap_ExportsWasiClocksMonotonicClock_handle[T : ExportsWasiClocksMonotonicClock](impl : T) -> Int64 {
+  impl.handle()
+}
+
+fn ffi_handle() -> Int64 {
+  wrap_ExportsWasiClocksMonotonicClock_handle(app)
+}
+
+// 用户端代码
+
+struct App {}
+
+fn ExportsWasiClocksMonotonicClock::handle(self: App) -> Int64 {
+  // Impl
+  0L
+}
+
+let app: App = App::{}
+
+test "extern call" {
+  if ffi_handle() != 0L {
+    abort("failed")
+  }
+}
+```
+
 ## `build`
 
 构建 MoonBit 项目，并合成出符合
