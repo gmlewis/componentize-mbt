@@ -1,7 +1,7 @@
 use crate::bindgen::FunctionBindgen;
 use crate::{
     int_repr, to_mbt_ident, to_upper_camel_case, wasm_type, Direction, ExportKey, FnSig,
-    Identifier, InterfaceName, Ownership, MbtFlagsRepr, MoonBit, TypeMode,
+    Identifier, InterfaceName, MbtFlagsRepr, ModuleName, MoonBit, Ownership, TypeMode,
 };
 use anyhow::Result;
 use heck::*;
@@ -78,6 +78,7 @@ impl InterfaceGenerator<'_> {
     pub(super) fn generate_exports<'a>(
         &mut self,
         funcs: impl Iterator<Item = &'a Function> + Clone,
+        module_name: Option<&ModuleName>,
     ) -> Result<()> {
         let mut traits = BTreeMap::new();
 
@@ -88,15 +89,13 @@ impl InterfaceGenerator<'_> {
 
             // First generate the exported function which performs lift/lower
             // operations and delegates to a trait (that doesn't exist just yet).
-            self.src.push_str("const _: () = {\n");
             self.generate_guest_export(func);
-            self.src.push_str("};\n");
 
             // Next generate a trait signature for this method and insert it
             // into `traits`. Note that `traits` will have a trait-per-resource.
             let (trait_name, local_impl_name, export_key) = match func.kind {
                 FunctionKind::Freestanding => (
-                    "Guest".to_string(),
+                    module_name.map(|n| n.qual.as_str()).unwrap_or("Guest").into(),
                     "_GuestImpl".to_string(),
                     self.export_key(None),
                 ),
@@ -120,6 +119,7 @@ impl InterfaceGenerator<'_> {
             let mut sig = FnSig {
                 use_item_name: true,
                 private: true,
+                is_trait: true,
                 ..Default::default()
             };
             if let FunctionKind::Method(_) = &func.kind {
@@ -155,9 +155,13 @@ impl InterfaceGenerator<'_> {
         Ok(())
     }
 
-    pub fn generate_imports<'a>(&mut self, funcs: impl Iterator<Item = &'a Function>) {
+    pub fn generate_imports<'a>(
+        &mut self,
+        funcs: impl Iterator<Item = &'a Function>,
+        module_name: Option<&ModuleName>,
+    ) {
         for func in funcs {
-            self.generate_guest_import(func);
+            self.generate_guest_import(func, module_name);
         }
     }
 
@@ -205,32 +209,12 @@ impl InterfaceGenerator<'_> {
         path_to_root
     }
 
-    pub fn start_append_submodule(&mut self, name: &WorldKey) -> (String, Vec<String>) {
-        let snake = match name {
-            WorldKey::Name(name) => to_mbt_ident(name),
-            WorldKey::Interface(id) => {
-                to_mbt_ident(self.resolve.interfaces[*id].name.as_ref().unwrap())
-            }
-        };
-        let module_path = crate::compute_module_path(name, &self.resolve, !self.in_import);
-        (snake, module_path)
+    pub fn start_append_submodule(&mut self, name: &WorldKey) -> Vec<ModuleName> {
+        crate::compute_module_path(name, &self.resolve, !self.in_import)
     }
 
-    pub fn finish_append_submodule(mut self, snake: &str, module_path: Vec<String>) {
+    pub fn finish_append_submodule(mut self, module_path: Vec<ModuleName>) {
         let module = self.finish();
-        let path_to_root = self.path_to_root();
-        let module = format!(
-            "
-                #[allow(clippy::all)]
-                pub mod {snake} {{
-                    #[used]
-                    #[doc(hidden)]
-                    #[cfg(target_arch = \"wasm32\")]
-                    static __FORCE_SECTION_REF: fn() = {path_to_root}__link_section;
-                    {module}
-                }}
-            ",
-        );
         let map = if self.in_import {
             &mut self.gen.import_modules
         } else {
@@ -239,7 +223,7 @@ impl InterfaceGenerator<'_> {
         map.push((module, module_path))
     }
 
-    fn generate_guest_import(&mut self, func: &Function) {
+    fn generate_guest_import(&mut self, func: &Function, module_name: Option<&ModuleName>) {
         if self.gen.skip.contains(&func.name) {
             return;
         }
@@ -247,7 +231,12 @@ impl InterfaceGenerator<'_> {
         let mut sig = FnSig::default();
         let param_mode = TypeMode::AllBorrowed("'_");
         match func.kind {
-            FunctionKind::Freestanding => {}
+            FunctionKind::Freestanding => {
+                if let Some(module_name) = module_name {
+                    sig.self_arg = Some(format!("self: {}", module_name.qual));
+                    sig.self_is_first_param = true;
+                }
+            }
             FunctionKind::Method(id) | FunctionKind::Static(id) | FunctionKind::Constructor(id) => {
                 let name = self.resolve.types[id].name.as_ref().unwrap();
                 let name = to_upper_camel_case(name);
@@ -259,7 +248,6 @@ impl InterfaceGenerator<'_> {
                 }
             }
         }
-        self.src.push_str("#[allow(unused_unsafe, clippy::all)]\n");
         let params = self.print_signature(func, param_mode, &sig);
         self.src.push_str("{\n");
         self.src.push_str(&format!(
@@ -581,7 +569,9 @@ impl InterfaceGenerator<'_> {
         if sig.async_ {
             self.push_str("async ");
         }
-        self.push_str("fn ");
+        if !sig.is_trait {
+            self.push_str("fn ");
+        }
         let func_name = if sig.use_item_name {
             if let FunctionKind::Constructor(_) = &func.kind {
                 "new"
@@ -598,20 +588,26 @@ impl InterfaceGenerator<'_> {
         self.push_str("(");
         if let Some(arg) = &sig.self_arg {
             self.push_str(arg);
-            self.push_str(",");
+            if !func.params.is_empty() {
+                self.push_str(", ");
+            }
         }
         let mut params = Vec::new();
         for (i, (name, param)) in func.params.iter().enumerate() {
+            if i > 0 {
+                self.push_str(", ");
+            }
             if i == 0 && sig.self_is_first_param {
                 params.push("self".to_string());
                 continue;
             }
             let name = to_mbt_ident(name);
-            self.push_str(&name);
+            if !sig.is_trait {
+                self.push_str(&name);
+                self.push_str(": ");
+            }
             params.push(name);
-            self.push_str(": ");
             self.print_ty(param, param_mode);
-            self.push_str(",");
         }
         self.push_str(")");
         params

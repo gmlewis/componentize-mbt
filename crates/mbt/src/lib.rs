@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use crate::interface::InterfaceGenerator;
 use anyhow::{bail, Result};
 use heck::*;
@@ -39,13 +40,55 @@ struct MoonBit {
     types: Types,
     src: Source,
     opts: Opts,
-    import_modules: Vec<(String, Vec<String>)>,
-    export_modules: Vec<(String, Vec<String>)>,
+    import_modules: Vec<(String, Vec<ModuleName>)>,
+    export_modules: Vec<(String, Vec<ModuleName>)>,
     skip: HashSet<String>,
     interface_names: HashMap<InterfaceId, InterfaceName>,
     resources: HashMap<TypeId, ResourceInfo>,
     import_funcs_called: bool,
     with_name_counter: usize,
+}
+
+#[derive(Clone, Eq)]
+struct ModuleName {
+    snake: String,
+    qual: String,
+}
+
+impl ModuleName {
+    fn root(name: impl AsRef<str>) -> Self {
+        let name = to_mbt_ident(name.as_ref());
+        Self {
+            snake: name.to_snake_case(),
+            qual: name.to_upper_camel_case(),
+        }
+    }
+
+    fn child(&self, name: impl AsRef<str>) -> Self {
+        let name = to_mbt_ident(name.as_ref());
+        Self {
+            snake: name.to_snake_case(),
+            qual: format!("{}{}", self.qual, name.to_upper_camel_case()),
+        }
+    }
+}
+
+impl PartialEq<Self> for ModuleName {
+    fn eq(&self, other: &Self) -> bool {
+        self.qual == other.qual
+    }
+}
+
+impl PartialOrd<Self> for ModuleName {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.qual.partial_cmp(&other.qual)
+    }
+}
+
+impl Ord for ModuleName {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.qual.cmp(&other.qual)
+    }
 }
 
 #[cfg(feature = "clap")]
@@ -211,16 +254,16 @@ impl MoonBit {
         }
     }
 
-    fn emit_modules(&mut self, modules: Vec<(String, Vec<String>)>) {
+    fn emit_modules(&mut self, modules: Vec<(String, Vec<ModuleName>)>, in_import: bool) {
         #[derive(Default)]
         struct Module {
-            submodules: BTreeMap<String, Module>,
+            submodules: BTreeMap<ModuleName, Module>,
             contents: Vec<String>,
         }
         let mut map = Module::default();
         for (module, path) in modules {
             let mut cur = &mut map;
-            for name in path[..path.len() - 1].iter() {
+            for name in path.iter() {
                 cur = cur
                     .submodules
                     .entry(name.clone())
@@ -228,16 +271,47 @@ impl MoonBit {
             }
             cur.contents.push(module);
         }
-        emit(&mut self.src, map);
-        fn emit(me: &mut Source, module: Module) {
+        let inits = emit(&mut self.src, map, in_import);
+        if in_import {
+            for (snake, init) in inits {
+                uwriteln!(self.src, "pub let {}: {} = {init}\n", snake.snake, snake.qual);
+            }
+        }
+        fn emit(me: &mut Source, module: Module, in_import: bool) -> Vec<(ModuleName, String)> {
+            let mut rv = Vec::new();
             for (name, submodule) in module.submodules {
-                uwriteln!(me, "pub mod {name} {{");
-                emit(me, submodule);
-                uwriteln!(me, "}}");
+                if in_import {
+                    if submodule.submodules.is_empty() {
+                        uwriteln!(me, "pub(readonly) type {} Unit", name.qual);
+                    } else {
+                        uwriteln!(me, "pub(readonly) struct {} {{", name.qual);
+                        for (name, _) in submodule.submodules.iter() {
+                            uwriteln!(me, "{}: {}", name.snake, name.qual);
+                        }
+                        uwriteln!(me, "}}");
+                    }
+                    uwriteln!(me, "");
+                }
+
+                let sub_inits = emit(me, submodule, in_import);
+                if in_import {
+                    let init = if sub_inits.is_empty() {
+                        format!("{}(())", name.qual)
+                    } else {
+                        let init = sub_inits
+                            .into_iter()
+                            .map(|(name, init)| format!("{}: {init}", name.snake))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{{ {init} }}")
+                    };
+                    rv.push((name, init));
+                }
             }
             for submodule in module.contents {
                 uwriteln!(me, "{submodule}");
             }
+            rv
         }
     }
 
@@ -289,7 +363,11 @@ impl MoonBit {
                 path: name,
             }
         } else {
-            let path = compute_module_path(name, resolve, is_export).join("::");
+            let path = compute_module_path(name, resolve, is_export)
+                .into_iter()
+                .map(|n| n.snake)
+                .collect::<Vec<_>>()
+                .join("::");
 
             InterfaceName {
                 remapped: false,
@@ -369,15 +447,15 @@ impl WorldGenerator for MoonBit {
             resolve,
             true,
         );
-        let (snake, module_path) = gen.start_append_submodule(name);
+        let module_path = gen.start_append_submodule(name);
         if gen.gen.name_interface(resolve, id, name, false) {
             return;
         }
         gen.types(id);
 
-        gen.generate_imports(resolve.interfaces[id].functions.values());
+        gen.generate_imports(resolve.interfaces[id].functions.values(), module_path.last());
 
-        gen.finish_append_submodule(&snake, module_path);
+        gen.finish_append_submodule(module_path);
     }
 
     fn import_funcs(
@@ -391,7 +469,7 @@ impl WorldGenerator for MoonBit {
 
         let mut gen = self.interface(Identifier::World(world), Some("$root"), resolve, true);
 
-        gen.generate_imports(funcs.iter().map(|(_, func)| *func));
+        gen.generate_imports(funcs.iter().map(|(_, func)| *func), None);
 
         let src = gen.finish();
         self.src.push_str(&src);
@@ -405,13 +483,13 @@ impl WorldGenerator for MoonBit {
         _files: &mut Files,
     ) -> Result<()> {
         let mut gen = self.interface(Identifier::Interface(id, name), None, resolve, false);
-        let (snake, module_path) = gen.start_append_submodule(name);
+        let module_path = gen.start_append_submodule(name);
         if gen.gen.name_interface(resolve, id, name, true) {
             return Ok(());
         }
         gen.types(id);
-        gen.generate_exports(resolve.interfaces[id].functions.values())?;
-        gen.finish_append_submodule(&snake, module_path);
+        gen.generate_exports(resolve.interfaces[id].functions.values(), module_path.last())?;
+        gen.finish_append_submodule(module_path);
         Ok(())
     }
 
@@ -423,7 +501,7 @@ impl WorldGenerator for MoonBit {
         _files: &mut Files,
     ) -> Result<()> {
         let mut gen = self.interface(Identifier::World(world), None, resolve, false);
-        gen.generate_exports(funcs.iter().map(|f| f.1))?;
+        gen.generate_exports(funcs.iter().map(|f| f.1), None)?;
         let src = gen.finish();
         self.src.push_str(&src);
         Ok(())
@@ -457,9 +535,9 @@ impl WorldGenerator for MoonBit {
         let name = &resolve.worlds[world].name;
 
         let imports = mem::take(&mut self.import_modules);
-        self.emit_modules(imports);
+        self.emit_modules(imports, true);
         let exports = mem::take(&mut self.export_modules);
-        self.emit_modules(exports);
+        self.emit_modules(exports, false);
 
         if self.opts.stubs {
             self.src.push_str("\n#[derive(Debug)]\npub struct Stub;\n");
@@ -511,11 +589,11 @@ impl WorldGenerator for MoonBit {
 
         let src = mem::take(&mut self.src);
         let module_name = name.to_snake_case();
-        files.push(&format!("{module_name}.rs"), src.as_bytes());
+        files.push(&format!("{module_name}.mbt"), src.as_bytes());
     }
 }
 
-fn compute_module_path(name: &WorldKey, resolve: &Resolve, is_export: bool) -> Vec<String> {
+fn compute_module_path(name: &WorldKey, resolve: &Resolve, is_export: bool) -> Vec<ModuleName> {
     let mut path = Vec::new();
     if is_export {
         path.push("exports".to_string());
@@ -533,7 +611,15 @@ fn compute_module_path(name: &WorldKey, resolve: &Resolve, is_export: bool) -> V
             path.push(iface.name.as_ref().unwrap().to_snake_case());
         }
     }
-    path
+    let mut iter = path.into_iter();
+    let first = ModuleName::root(iter.next().unwrap());
+    let (mut rv, last) = iter.fold((vec![], first), |(mut rv, prev), name| {
+        let name = prev.child(name);
+        rv.push(prev);
+        (rv, name)
+    });
+    rv.push(last);
+    rv
 }
 
 enum Identifier<'a> {
@@ -625,6 +711,7 @@ struct FnSig {
     generics: Option<String>,
     self_arg: Option<String>,
     self_is_first_param: bool,
+    is_trait: bool,
 }
 
 pub fn to_mbt_ident(name: &str) -> String {
