@@ -37,7 +37,7 @@ struct InterfaceName {
 }
 
 #[derive(Default)]
-struct RustWasm {
+struct MoonBit {
     types: Types,
     src: Source,
     opts: Opts,
@@ -182,16 +182,16 @@ pub struct Opts {
 
 impl Opts {
     pub fn build(self) -> Box<dyn WorldGenerator> {
-        let mut r = RustWasm::new();
+        let mut r = MoonBit::new();
         r.skip = self.skip.iter().cloned().collect();
         r.opts = self;
         Box::new(r)
     }
 }
 
-impl RustWasm {
-    fn new() -> RustWasm {
-        RustWasm::default()
+impl MoonBit {
+    fn new() -> MoonBit {
+        MoonBit::default()
     }
 
     fn interface<'a>(
@@ -355,7 +355,7 @@ fn name_package_module(resolve: &Resolve, id: PackageId) -> String {
     format!("{base}{version}")
 }
 
-impl WorldGenerator for RustWasm {
+impl WorldGenerator for MoonBit {
     fn preprocess(&mut self, resolve: &Resolve, _world: WorldId) {
         wit_bindgen_core::generated_preamble(&mut self.src, env!("CARGO_PKG_VERSION"));
         self.types.analyze(resolve);
@@ -798,7 +798,7 @@ fn bitcast(casts: &[Bitcast], operands: &[String], results: &mut Vec<String>) {
     }
 }
 
-enum RustFlagsRepr {
+enum MbtFlagsRepr {
     U8,
     U16,
     U32,
@@ -806,27 +806,27 @@ enum RustFlagsRepr {
     U128,
 }
 
-impl RustFlagsRepr {
-    fn new(f: &Flags) -> RustFlagsRepr {
+impl MbtFlagsRepr {
+    fn new(f: &Flags) -> MbtFlagsRepr {
         match f.repr() {
-            FlagsRepr::U8 => RustFlagsRepr::U8,
-            FlagsRepr::U16 => RustFlagsRepr::U16,
-            FlagsRepr::U32(1) => RustFlagsRepr::U32,
-            FlagsRepr::U32(2) => RustFlagsRepr::U64,
-            FlagsRepr::U32(3 | 4) => RustFlagsRepr::U128,
+            FlagsRepr::U8 => MbtFlagsRepr::U8,
+            FlagsRepr::U16 => MbtFlagsRepr::U16,
+            FlagsRepr::U32(1) => MbtFlagsRepr::U32,
+            FlagsRepr::U32(2) => MbtFlagsRepr::U64,
+            FlagsRepr::U32(3 | 4) => MbtFlagsRepr::U128,
             FlagsRepr::U32(n) => panic!("unsupported number of flags: {}", n * 32),
         }
     }
 }
 
-impl fmt::Display for RustFlagsRepr {
+impl fmt::Display for MbtFlagsRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RustFlagsRepr::U8 => "u8".fmt(f),
-            RustFlagsRepr::U16 => "u16".fmt(f),
-            RustFlagsRepr::U32 => "u32".fmt(f),
-            RustFlagsRepr::U64 => "u64".fmt(f),
-            RustFlagsRepr::U128 => "u128".fmt(f),
+            MbtFlagsRepr::U8 => "u8".fmt(f),
+            MbtFlagsRepr::U16 => "u16".fmt(f),
+            MbtFlagsRepr::U32 => "u32".fmt(f),
+            MbtFlagsRepr::U64 => "u64".fmt(f),
+            MbtFlagsRepr::U128 => "u128".fmt(f),
         }
     }
 }

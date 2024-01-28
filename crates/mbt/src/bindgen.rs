@@ -1,4 +1,4 @@
-use crate::{int_repr, to_rust_ident, wasm_type, Direction, InterfaceGenerator, RustFlagsRepr};
+use crate::{int_repr, to_rust_ident, wasm_type, Direction, InterfaceGenerator, MbtFlagsRepr};
 use heck::*;
 use std::fmt::Write as _;
 use std::mem;
@@ -393,7 +393,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                 }
             }
             Instruction::FlagsLift { flags, ty, .. } => {
-                let repr = RustFlagsRepr::new(flags);
+                let repr = MbtFlagsRepr::new(flags);
                 let name = self.gen.type_path(*ty, true);
                 let mut result = format!("{name}::empty()");
                 for (i, op) in operands.iter().enumerate() {

@@ -1,7 +1,7 @@
 use crate::bindgen::FunctionBindgen;
 use crate::{
     int_repr, to_rust_ident, to_upper_camel_case, wasm_type, Direction, ExportKey, FnSig,
-    Identifier, InterfaceName, Ownership, RustFlagsRepr, RustWasm, TypeMode,
+    Identifier, InterfaceName, Ownership, MbtFlagsRepr, MoonBit, TypeMode,
 };
 use anyhow::Result;
 use heck::*;
@@ -16,7 +16,7 @@ pub struct InterfaceGenerator<'a> {
     pub(super) identifier: Identifier<'a>,
     pub in_import: bool,
     pub sizes: SizeAlign,
-    pub(super) gen: &'a mut RustWasm,
+    pub(super) gen: &'a mut MoonBit,
     pub wasm_import_module: Option<&'a str>,
     pub resolve: &'a Resolve,
     pub return_pointer_area_size: usize,
@@ -1763,7 +1763,7 @@ impl<'a> wit_bindgen_core::InterfaceGenerator<'a> for InterfaceGenerator<'a> {
             bitflags = self.gen.bitflags_path()
         ));
         self.rustdoc(docs);
-        let repr = RustFlagsRepr::new(flags);
+        let repr = MbtFlagsRepr::new(flags);
         self.src.push_str(&format!(
             "#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]\npub struct {}: {repr} {{\n",
             name.to_upper_camel_case(),
