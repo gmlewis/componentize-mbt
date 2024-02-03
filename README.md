@@ -42,30 +42,41 @@ test "use import" {
 
 ```
 pub trait ExportsWasiClocksMonotonicClock  {
-  handle(Self) -> Int64
+  now(Self) -> Int64
 }
 
-fn wrap_ExportsWasiClocksMonotonicClock_handle[T : ExportsWasiClocksMonotonicClock](impl : T) -> Int64 {
-  impl.handle()
+struct GuestImpl {
+  mut wasi_clocks_monotonic_clock: Option[ExportsWasiClocksMonotonicClock]
+} derive(Default)
+
+let guest_impl: GuestImpl = GuestImpl::default()
+
+pub fn init_guest[T: ExportsWasiClocksMonotonicClock](guest: T) {
+  guest_impl.wasi_clocks_monotonic_clock = Some(guest as ExportsWasiClocksMonotonicClock)
 }
 
-fn ffi_handle() -> Int64 {
-  wrap_ExportsWasiClocksMonotonicClock_handle(app)
+// export_name = "now"
+pub fn __export_now() -> Int64 {
+  guest_impl.wasi_clocks_monotonic_clock.unwrap().now()
 }
 
 // 用户端代码
 
 struct App {}
 
-fn ExportsWasiClocksMonotonicClock::handle(self: App) -> Int64 {
+fn ExportsWasiClocksMonotonicClock::now(self: App) -> Int64 {
   // Impl
   0L
 }
 
 let app: App = App::{}
 
+fn init {
+  init_guest(app)
+}
+
 test "extern call" {
-  if ffi_handle() != 0L {
+  if ffi_now() != 0L {
     abort("failed")
   }
 }
