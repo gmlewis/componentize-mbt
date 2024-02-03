@@ -1,15 +1,17 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+use std::mem;
+
+use anyhow::Result;
+use heck::*;
+use wit_bindgen_core::abi::{self, AbiVariant, LiftLower};
+use wit_bindgen_core::{dealias, uwrite, uwriteln, wit_parser::*, Source, TypeInfo};
+
 use crate::bindgen::FunctionBindgen;
 use crate::{
     int_repr, to_mbt_ident, to_upper_camel_case, wasm_type, Direction, ExportKey, FnSig,
     Identifier, InterfaceName, MbtFlagsRepr, ModuleName, MoonBit, Ownership, TypeMode,
 };
-use anyhow::Result;
-use heck::*;
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
-use std::mem;
-use wit_bindgen_core::abi::{self, AbiVariant, LiftLower};
-use wit_bindgen_core::{dealias, uwrite, uwriteln, wit_parser::*, Source, TypeInfo};
 
 pub struct InterfaceGenerator<'a> {
     pub src: Source,
@@ -83,20 +85,13 @@ impl InterfaceGenerator<'_> {
         let mut traits = BTreeMap::new();
 
         for func in funcs {
-            if self.gen.skip.contains(&func.name) {
+            if self.gen.skip.contains(&func.name) || func.name == "mbt-init" {
                 continue;
             }
 
-            // First generate the exported function which performs lift/lower
-            // operations and delegates to a trait (that doesn't exist just yet).
-            self.generate_guest_export(func);
-
-            // Next generate a trait signature for this method and insert it
-            // into `traits`. Note that `traits` will have a trait-per-resource.
-            let (trait_name, local_impl_name, export_key) = match func.kind {
+            let (trait_name, export_key) = match func.kind {
                 FunctionKind::Freestanding => (
                     module_name.map(|n| n.qual.as_str()).unwrap_or("Guest").into(),
-                    "_GuestImpl".to_string(),
                     self.export_key(None),
                 ),
                 FunctionKind::Method(id)
@@ -106,15 +101,27 @@ impl InterfaceGenerator<'_> {
                     let camel = resource_name.to_upper_camel_case();
                     let trait_name = format!("Guest{camel}");
                     let export_key = self.export_key(Some(&resource_name));
-                    let local_impl_name = format!("_{camel}Impl");
-                    (trait_name, local_impl_name, export_key)
+                    (trait_name, export_key)
                 }
             };
 
-            let (_, _, methods) =
+            // First generate the exported function which performs lift/lower
+            // operations and delegates to a trait (that doesn't exist just yet).
+            let num_traits = self.gen.export_traits.len();
+            let trait_field = self
+                .gen
+                .export_traits
+                .entry(trait_name.clone())
+                .or_insert_with(|| format!("t{num_traits}"))
+                .clone();
+            self.generate_guest_export(func, trait_field);
+
+            // Next generate a trait signature for this method and insert it
+            // into `traits`. Note that `traits` will have a trait-per-resource.
+            let (_, methods) =
                 traits
                     .entry(export_key)
-                    .or_insert((trait_name, local_impl_name, Vec::new()));
+                    .or_insert((trait_name, Vec::new()));
             let prev = mem::take(&mut self.src);
             let mut sig = FnSig {
                 use_item_name: true,
@@ -122,9 +129,16 @@ impl InterfaceGenerator<'_> {
                 is_trait: true,
                 ..Default::default()
             };
-            if let FunctionKind::Method(_) = &func.kind {
-                sig.self_arg = Some("&self".into());
-                sig.self_is_first_param = true;
+            match &func.kind {
+                FunctionKind::Freestanding => {
+                    sig.self_arg = Some("Self".into());
+                }
+                FunctionKind::Method(_) => {
+                    sig.self_arg = Some("&self".into());
+                    sig.self_is_first_param = true;
+                }
+                FunctionKind::Static(_) => {}
+                FunctionKind::Constructor(_) => {}
             }
             self.print_signature(func, TypeMode::Owned, &sig);
             self.src.push_str(";\n");
@@ -137,19 +151,13 @@ impl InterfaceGenerator<'_> {
         // Additionally alias the user-configured item for each trait here as
         // there's only one implementation of this trait and it must be
         // pre-configured.
-        for (export_key, (trait_name, local_impl_name, methods)) in traits {
-            let impl_name = self.gen.lookup_export(&export_key)?;
-            let path_to_root = self.path_to_root();
-            uwriteln!(
-                self.src,
-                "use {path_to_root}{impl_name} as {local_impl_name};"
-            );
-
+        for (trait_name, methods) in traits.values() {
             uwriteln!(self.src, "pub trait {trait_name} {{");
             for method in methods {
                 self.src.push_str(&method);
             }
             uwriteln!(self.src, "}}");
+            uwriteln!(self.src, "");
         }
 
         Ok(())
@@ -167,17 +175,10 @@ impl InterfaceGenerator<'_> {
 
     pub fn finish(&mut self) -> String {
         if self.return_pointer_area_align > 0 {
+            self.gen.imported_builtins.insert("_rael_malloc");
             uwrite!(
                 self.src,
-                "
-                    #[allow(unused_imports)]
-                    use {rt}::{{alloc, vec::Vec, string::String}};
-
-                    #[repr(align({align}))]
-                    struct _RetArea([u8; {size}]);
-                    static mut _RET_AREA: _RetArea = _RetArea([0; {size}]);
-                ",
-                rt = self.gen.runtime_path(),
+                "let _RET_AREA: Int = _rael_malloc({size}) // align: {align}\n",
                 align = self.return_pointer_area_align,
                 size = self.return_pointer_area_size,
             );
@@ -234,7 +235,6 @@ impl InterfaceGenerator<'_> {
             FunctionKind::Freestanding => {
                 if let Some(module_name) = module_name {
                     sig.self_arg = Some(format!("self: {}", module_name.qual));
-                    sig.self_is_first_param = true;
                 }
             }
             FunctionKind::Method(id) | FunctionKind::Static(id) | FunctionKind::Constructor(id) => {
@@ -250,16 +250,15 @@ impl InterfaceGenerator<'_> {
         }
         let params = self.print_signature(func, param_mode, &sig);
         self.src.push_str("{\n");
-        self.src.push_str(&format!(
-            "
-                #[allow(unused_imports)]
-                use {rt}::{{alloc, vec::Vec, string::String}};
-            ",
-            rt = self.gen.runtime_path()
-        ));
-        self.src.push_str("unsafe {\n");
 
-        let mut f = FunctionBindgen::new(self, params);
+        let ffi_name = format!(
+            "ffi_{}{}",
+            module_name
+                .map(|n| format!("{}_", n.qual.to_snake_case()))
+                .unwrap_or("".into()),
+            func.name.to_snake_case(),
+        );
+        let mut f = FunctionBindgen::new(self, params, Some(ffi_name.clone()));
         abi::call(
             f.gen.resolve,
             AbiVariant::GuestImport,
@@ -281,18 +280,12 @@ impl InterfaceGenerator<'_> {
         }
         assert!(handle_decls.is_empty());
         if import_return_pointer_area_size > 0 {
-            uwrite!(
-                self.src,
-                "
-                    #[repr(align({import_return_pointer_area_align}))]
-                    struct RetArea([u8; {import_return_pointer_area_size}]);
-                    let mut ret_area = ::core::mem::MaybeUninit::<RetArea>::uninit();
-                ",
-            );
+            self.gen.imported_builtins.insert("_rael_malloc");
+            uwrite!(self.src, "let ret_area = _rael_malloc({import_return_pointer_area_size})");
+            uwriteln!(self.src, " // align: {import_return_pointer_area_align}");
         }
         self.src.push_str(&String::from(src));
 
-        self.src.push_str("}\n");
         self.src.push_str("}\n");
 
         match func.kind {
@@ -301,10 +294,37 @@ impl InterfaceGenerator<'_> {
                 self.src.push_str("}\n");
             }
         }
+        self.src.push_str("\n");
+
+        let wasm_sig = self.resolve.wasm_signature(AbiVariant::GuestImport, func);
+        self.src.push_str("fn ");
+        self.src.push_str(&ffi_name);
+        self.src.push_str("(");
+        self.src.push_str(
+            &wasm_sig
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("p{i}: {}", wasm_type(*p)))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        self.src.push_str(")");
+        assert!(wasm_sig.results.len() < 2);
+        for result in wasm_sig.results.iter() {
+            self.src.push_str(" -> ");
+            self.src.push_str(wasm_type(*result));
+        }
+        self.src.push_str(" = \"");
+        self.src.push_str(self.wasm_import_module.unwrap());
+        self.src.push_str("\" \"");
+        self.src.push_str(&func.name);
+        self.src.push_str("\"\n\n");
+
     }
 
-    fn generate_guest_export(&mut self, func: &Function) {
-        if self.gen.skip.contains(&func.name) {
+    fn generate_guest_export(&mut self, func: &Function, field: String) {
+        if self.gen.skip.contains(&func.name) || func.name == "mbt-init" {
             return;
         }
 
@@ -315,13 +335,15 @@ impl InterfaceGenerator<'_> {
         };
         let export_prefix = self.gen.opts.export_prefix.as_deref().unwrap_or("");
         let export_name = func.core_export_name(wasm_module_export_name.as_deref());
+        self.gen.exported_symbols.insert(
+            format!("__export_{name_snake}"),
+            format!("{export_prefix}{export_name}"),
+        );
         uwrite!(
             self.src,
             "
-                #[doc(hidden)]
-                #[export_name = \"{export_prefix}{export_name}\"]
-                #[allow(non_snake_case)]
-                unsafe extern \"C\" fn __export_{name_snake}(\
+                // export_name = \"{export_prefix}{export_name}\"
+                pub fn __export_{name_snake}(\
             ",
         );
 
@@ -342,33 +364,10 @@ impl InterfaceGenerator<'_> {
             _ => unimplemented!(),
         }
 
-        self.push_str(" {");
+        self.push_str(" {\n");
 
-        uwrite!(
-            self.src,
-            "
-                #[allow(unused_imports)]
-                use {rt}::{{alloc, vec::Vec, string::String}};
-
-                // Before executing any other code, use this function to run all static
-                // constructors, if they have not yet been run. This is a hack required
-                // to work around wasi-libc ctors calling import functions to initialize
-                // the environment.
-                //
-                // This functionality will be removed once rust 1.69.0 is stable, at which
-                // point wasi-libc will no longer have this behavior.
-                //
-                // See
-                // https://github.com/bytecodealliance/preview2-prototyping/issues/99
-                // for more details.
-                #[cfg(target_arch=\"wasm32\")]
-                {rt}::run_ctors_once();
-
-            ",
-            rt = self.gen.runtime_path()
-        );
-
-        let mut f = FunctionBindgen::new(self, params);
+        let mut f = FunctionBindgen::new(self, params, None);
+        f.export_trait_field = Some(field);
         abi::call(
             f.gen.resolve,
             AbiVariant::GuestExport,
@@ -389,17 +388,19 @@ impl InterfaceGenerator<'_> {
         }
         self.src.push_str(&String::from(src));
         self.src.push_str("}\n");
+        self.src.push_str("\n");
 
         if abi::guest_export_needs_post_return(self.resolve, func) {
             let export_prefix = self.gen.opts.export_prefix.as_deref().unwrap_or("");
+            self.gen.exported_symbols.insert(
+                format!("__post_return_{name_snake}"),
+                format!("{export_prefix}cabi_post_{export_name}"),
+            );
             uwrite!(
                 self.src,
                 "
-                    const _: () = {{
-                    #[doc(hidden)]
-                    #[export_name = \"{export_prefix}cabi_post_{export_name}\"]
-                    #[allow(non_snake_case)]
-                    unsafe extern \"C\" fn __post_return_{name_snake}(\
+                    // export_name = \"{export_prefix}cabi_post_{export_name}\"
+                    pub fn __post_return_{name_snake}(\
                 "
             );
             let mut params = Vec::new();
@@ -410,7 +411,7 @@ impl InterfaceGenerator<'_> {
             }
             self.src.push_str(") {\n");
 
-            let mut f = FunctionBindgen::new(self, params);
+            let mut f = FunctionBindgen::new(self, params, None);
             abi::post_return(f.gen.resolve, func, &mut f);
             let FunctionBindgen {
                 needs_cleanup_list,
@@ -422,7 +423,6 @@ impl InterfaceGenerator<'_> {
             assert!(handle_decls.is_empty());
             self.src.push_str(&String::from(src));
             self.src.push_str("}\n");
-            self.src.push_str("};\n");
         }
     }
 
@@ -588,20 +588,17 @@ impl InterfaceGenerator<'_> {
         self.push_str("(");
         if let Some(arg) = &sig.self_arg {
             self.push_str(arg);
-            if !func.params.is_empty() {
-                self.push_str(", ");
-            }
         }
         let mut params = Vec::new();
         for (i, (name, param)) in func.params.iter().enumerate() {
-            if i > 0 {
-                self.push_str(", ");
-            }
             if i == 0 && sig.self_is_first_param {
                 params.push("self".to_string());
                 continue;
             }
             let name = to_mbt_ident(name);
+            if i > 0 || sig.self_arg.is_some() {
+                self.push_str(", ");
+            }
             if !sig.is_trait {
                 self.push_str(&name);
                 self.push_str(": ");
@@ -634,29 +631,25 @@ impl InterfaceGenerator<'_> {
     fn print_ty(&mut self, ty: &Type, mode: TypeMode) {
         match ty {
             Type::Id(t) => self.print_tyid(*t, mode),
-            Type::Bool => self.push_str("bool"),
-            Type::U8 => self.push_str("u8"),
-            Type::U16 => self.push_str("u16"),
-            Type::U32 => self.push_str("u32"),
-            Type::U64 => self.push_str("u64"),
-            Type::S8 => self.push_str("i8"),
-            Type::S16 => self.push_str("i16"),
-            Type::S32 => self.push_str("i32"),
-            Type::S64 => self.push_str("i64"),
-            Type::Float32 => self.push_str("f32"),
-            Type::Float64 => self.push_str("f64"),
-            Type::Char => self.push_str("char"),
-            Type::String => match mode {
-                TypeMode::AllBorrowed(lt) => self.print_borrowed_str(lt),
-                TypeMode::Owned | TypeMode::HandlesBorrowed(_) => {
-                    if self.gen.opts.raw_strings {
-                        self.push_vec_name();
-                        self.push_str("::<u8>");
-                    } else {
-                        self.push_string_name();
-                    }
+            Type::Bool => self.push_str("Bool"),
+            Type::U8 => self.push_str("Int"),
+            Type::U16 => self.push_str("Int"),
+            Type::U32 => self.push_str("Int"),
+            Type::U64 => self.push_str("Int64"),
+            Type::S8 => self.push_str("Int"),
+            Type::S16 => self.push_str("Int"),
+            Type::S32 => self.push_str("Int"),
+            Type::S64 => self.push_str("Int64"),
+            Type::Float32 => self.push_str("Float"),
+            Type::Float64 => self.push_str("Float64"),
+            Type::Char => self.push_str("Int"),
+            Type::String => {
+                if self.gen.opts.raw_strings {
+                    self.push_str("Bytes");
+                } else {
+                    self.push_str("String");
                 }
-            },
+            }
         }
     }
 
@@ -856,36 +849,28 @@ impl InterfaceGenerator<'_> {
         } else {
             mode
         };
-        // Lists with `own` handles must always be owned
-        let mode = match *ty {
-            Type::Id(id) if self.info(id).has_own_handle => TypeMode::Owned,
-            _ => mode,
-        };
-        match mode {
-            TypeMode::AllBorrowed(lt) => {
-                self.print_borrowed_slice(false, ty, lt, next_mode);
-            }
-            TypeMode::Owned | TypeMode::HandlesBorrowed(_) => {
-                self.push_vec_name();
-                self.push_str("::<");
+        match ty {
+            Type::U8 => {
+                self.push_str("Bytes")
+            },
+            Type::Bool
+            | Type::U16
+            | Type::U32
+            | Type::U64
+            | Type::S8
+            | Type::S16
+            | Type::S32
+            | Type::S64
+            | Type::Float32
+            | Type::Float64
+            | Type::Char
+            | Type::String
+            | Type::Id(_) => {
+                self.push_str("Array[");
                 self.print_ty(ty, next_mode);
-                self.push_str(">");
+                self.push_str("]");
             }
         }
-    }
-
-    fn print_rust_slice(&mut self, mutbl: bool, ty: &Type, lifetime: &'static str, mode: TypeMode) {
-        self.push_str("&");
-        if lifetime != "'_" {
-            self.push_str(lifetime);
-            self.push_str(" ");
-        }
-        if mutbl {
-            self.push_str(" mut ");
-        }
-        self.push_str("[");
-        self.print_ty(ty, mode);
-        self.push_str("]");
     }
 
     fn print_generics(&mut self, lifetime: Option<&str>) {
@@ -1529,10 +1514,6 @@ impl InterfaceGenerator<'_> {
         }
     }
 
-    fn push_vec_name(&mut self) {
-        self.push_str(&format!("{rt}::vec::Vec", rt = self.gen.runtime_path()));
-    }
-
     fn is_exported_resource(&self, mut ty: TypeId) -> bool {
         loop {
             let def = &self.resolve.types[ty];
@@ -1560,42 +1541,12 @@ impl InterfaceGenerator<'_> {
             .owned = true;
     }
 
-    fn push_string_name(&mut self) {
-        self.push_str(&format!(
-            "{rt}::string::String",
-            rt = self.gen.runtime_path()
-        ));
-    }
-
     fn push_str(&mut self, s: &str) {
         self.src.push_str(s);
     }
 
     fn info(&self, ty: TypeId) -> TypeInfo {
         self.gen.types.get(ty)
-    }
-
-    fn print_borrowed_slice(
-        &mut self,
-        mutbl: bool,
-        ty: &Type,
-        lifetime: &'static str,
-        mode: TypeMode,
-    ) {
-        self.print_rust_slice(mutbl, ty, lifetime, mode);
-    }
-
-    fn print_borrowed_str(&mut self, lifetime: &'static str) {
-        self.push_str("&");
-        if lifetime != "'_" {
-            self.push_str(lifetime);
-            self.push_str(" ");
-        }
-        if self.gen.opts.raw_strings {
-            self.push_str("[u8]");
-        } else {
-            self.push_str("str");
-        }
     }
 }
 
@@ -1683,7 +1634,7 @@ impl<'a> wit_bindgen_core::InterfaceGenerator<'a> for InterfaceGenerator<'a> {
                         #[doc(hidden)]
                         #[export_name = "{export_prefix}{module}#[dtor]{name}"]
                         #[allow(non_snake_case)]
-                        unsafe extern "C" fn dtor(rep: usize) {{
+                        uuuuunsafe extern "C" fn dtor(rep: usize) {{
                             {rt}::Resource::<{camel}>::dtor(rep)
                         }}
                     }};

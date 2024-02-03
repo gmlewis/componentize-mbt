@@ -1,12 +1,14 @@
-use crate::{int_repr, to_mbt_ident, wasm_type, Direction, InterfaceGenerator, MbtFlagsRepr};
-use heck::*;
 use std::fmt::Write as _;
 use std::mem;
+
+use heck::*;
 use wit_bindgen_core::abi::{Bindgen, Instruction, LiftLower, WasmType};
 use wit_bindgen_core::{dealias, uwrite, uwriteln, wit_parser::*, Source};
 
+use crate::{int_repr, to_mbt_ident, Direction, interface, MbtFlagsRepr};
+
 pub(super) struct FunctionBindgen<'a, 'b> {
-    pub gen: &'b mut InterfaceGenerator<'a>,
+    pub gen: &'b mut interface::InterfaceGenerator<'a>,
     params: Vec<String>,
     pub src: Source,
     blocks: Vec<String>,
@@ -17,12 +19,15 @@ pub(super) struct FunctionBindgen<'a, 'b> {
     pub import_return_pointer_area_size: usize,
     pub import_return_pointer_area_align: usize,
     pub handle_decls: Vec<String>,
+    pub export_trait_field: Option<String>,
+    pub import_ffi_name: Option<String>,
 }
 
 impl<'a, 'b> FunctionBindgen<'a, 'b> {
     pub(super) fn new(
-        gen: &'b mut InterfaceGenerator<'a>,
+        gen: &'b mut interface::InterfaceGenerator<'a>,
         params: Vec<String>,
+        import_ffi_name: Option<String>,
     ) -> FunctionBindgen<'a, 'b> {
         FunctionBindgen {
             gen,
@@ -36,6 +41,8 @@ impl<'a, 'b> FunctionBindgen<'a, 'b> {
             import_return_pointer_area_size: 0,
             import_return_pointer_area_align: 0,
             handle_decls: Vec::new(),
+            export_trait_field: None,
+            import_ffi_name,
         }
     }
 
@@ -54,43 +61,10 @@ impl<'a, 'b> FunctionBindgen<'a, 'b> {
                 }\n",
             );
         }
-    }
-
-    fn declare_import(
-        &mut self,
-        module_name: &str,
-        name: &str,
-        params: &[WasmType],
-        results: &[WasmType],
-    ) -> String {
-        // Define the actual function we're calling inline
-        let mut sig = "(".to_owned();
-        for param in params.iter() {
-            sig.push_str("_: ");
-            sig.push_str(wasm_type(*param));
-            sig.push_str(", ");
+        if self.import_return_pointer_area_size > 0 {
+            self.gen.gen.imported_builtins.insert("_rael_free");
+            self.push_str("_rael_free(ret_area)\n");
         }
-        sig.push(')');
-        assert!(results.len() < 2);
-        for result in results.iter() {
-            sig.push_str(" -> ");
-            sig.push_str(wasm_type(*result));
-        }
-        uwrite!(
-            self.src,
-            "
-                #[cfg(target_arch = \"wasm32\")]
-                #[link(wasm_import_module = \"{module_name}\")]
-                extern \"C\" {{
-                    #[link_name = \"{name}\"]
-                    fn wit_import{sig};
-                }}
-
-                #[cfg(not(target_arch = \"wasm32\"))]
-                fn wit_import{sig} {{ unreachable!() }}
-            "
-        );
-        "wit_import".to_string()
     }
 
     fn let_results(&mut self, amt: usize, results: &mut Vec<String>) {
@@ -256,7 +230,6 @@ impl Bindgen for FunctionBindgen<'_, '_> {
     }
 
     fn return_pointer(&mut self, size: usize, align: usize) -> String {
-        let tmp = self.tmp();
 
         // Imports get a per-function return area to facilitate using the
         // stack whereas exports use a per-module return area to cut down on
@@ -266,13 +239,12 @@ impl Bindgen for FunctionBindgen<'_, '_> {
             self.import_return_pointer_area_size = self.import_return_pointer_area_size.max(size);
             self.import_return_pointer_area_align =
                 self.import_return_pointer_area_align.max(align);
-            uwrite!(self.src, "let ptr{tmp} = ret_area.as_mut_ptr() as i32;");
+            "ret_area".into()
         } else {
             self.gen.return_pointer_area_size = self.gen.return_pointer_area_size.max(size);
             self.gen.return_pointer_area_align = self.gen.return_pointer_area_align.max(align);
-            uwriteln!(self.src, "let ptr{tmp} = _RET_AREA.0.as_mut_ptr() as i32;");
+            "_RET_AREA".into()
         }
-        format!("ptr{}", tmp)
     }
 
     fn sizes(&self) -> &SizeAlign {
@@ -296,13 +268,6 @@ impl Bindgen for FunctionBindgen<'_, '_> {
         operands: &mut Vec<String>,
         results: &mut Vec<String>,
     ) {
-        let mut top_as = |cvt: &str| {
-            let mut s = operands.pop().unwrap();
-            s.push_str(" as ");
-            s.push_str(cvt);
-            results.push(s);
-        };
-
         match inst {
             Instruction::GetArg { nth } => results.push(self.params[*nth].clone()),
             Instruction::I32Const { val } => results.push(format!("{}i32", val)),
@@ -318,11 +283,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
             }
 
             Instruction::I64FromU64 | Instruction::I64FromS64 => {
-                let s = operands.pop().unwrap();
-                results.push(format!(
-                    "{rt}::as_i64({s})",
-                    rt = self.gen.gen.runtime_path()
-                ));
+                results.push(operands.pop().unwrap());
             }
             Instruction::I32FromChar
             | Instruction::I32FromU8
@@ -332,10 +293,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
             | Instruction::I32FromU32
             | Instruction::I32FromS32 => {
                 let s = operands.pop().unwrap();
-                results.push(format!(
-                    "{rt}::as_i32({s})",
-                    rt = self.gen.gen.runtime_path()
-                ));
+                results.push(s);
             }
 
             Instruction::F32FromFloat32 => {
@@ -355,15 +313,15 @@ impl Bindgen for FunctionBindgen<'_, '_> {
             Instruction::Float32FromF32
             | Instruction::Float64FromF64
             | Instruction::S32FromI32
-            | Instruction::S64FromI64 => {
+            | Instruction::S64FromI64
+            | Instruction::S8FromI32
+            | Instruction::U8FromI32
+            | Instruction::S16FromI32
+            | Instruction::U16FromI32
+            | Instruction::U32FromI32
+            | Instruction::U64FromI64 => {
                 results.push(operands.pop().unwrap());
             }
-            Instruction::S8FromI32 => top_as("i8"),
-            Instruction::U8FromI32 => top_as("u8"),
-            Instruction::S16FromI32 => top_as("i16"),
-            Instruction::U16FromI32 => top_as("u16"),
-            Instruction::U32FromI32 => top_as("u32"),
-            Instruction::U64FromI64 => top_as("u64"),
             Instruction::CharFromI32 => {
                 results.push(format!(
                     "{}::char_lift({} as u32)",
@@ -667,54 +625,68 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                 results.push(len);
             }
 
-            Instruction::ListCanonLift { .. } => {
-                let tmp = self.tmp();
-                let len = format!("len{}", tmp);
-                self.push_str(&format!("let {} = {} as usize;\n", len, operands[1]));
-                let result = format!(
-                    "Vec::from_raw_parts({} as *mut _, {1}, {1})",
-                    operands[0], len
-                );
-                results.push(result);
+            Instruction::ListCanonLift { element, .. } => {
+                match element {
+                    Type::Bool => todo!(),
+                    Type::U8 => {
+                        let bytes = format!("bytes{}", self.tmp());
+                        uwriteln!(
+                            self.src,
+                            "let {bytes} = Bytes::make({}, 0)",
+                            operands[1],
+                        );
+                        self.gen.gen.imported_builtins.insert("_rael_bytes_data");
+                        self.gen.gen.imported_builtins.insert("_rael_memory_copy");
+                        uwriteln!(
+                            self.src,
+                            "_rael_memory_copy(_rael_bytes_data({bytes}), {}, {})",
+                            operands[0],
+                            operands[1],
+                        );
+                        results.push(bytes);
+                    }
+                    Type::U16 => todo!(),
+                    Type::U32 => todo!(),
+                    Type::U64 => todo!(),
+                    Type::S8 => todo!(),
+                    Type::S16 => todo!(),
+                    Type::S32 => todo!(),
+                    Type::S64 => todo!(),
+                    Type::Float32 => todo!(),
+                    Type::Float64 => todo!(),
+                    Type::Char => todo!(),
+                    Type::String => todo!(),
+                    Type::Id(_) => todo!(),
+                }
             }
 
             Instruction::StringLower { realloc } => {
-                let tmp = self.tmp();
-                let val = format!("vec{}", tmp);
-                let ptr = format!("ptr{}", tmp);
-                let len = format!("len{}", tmp);
                 if realloc.is_none() {
-                    self.push_str(&format!("let {} = {};\n", val, operands[0]));
+                    self.gen.gen.imported_builtins.insert("_mbt_string_data");
+                    results.push(format!("_mbt_string_data({})", operands[0]));
+                    results.push(format!("{}.length()", operands[0]));
                 } else {
-                    let op0 = format!("{}.into_bytes()", operands[0]);
-                    self.push_str(&format!("let {} = ({}).into_boxed_slice();\n", val, op0));
+                    todo!();
                 }
-                self.push_str(&format!("let {} = {}.as_ptr() as i32;\n", ptr, val));
-                self.push_str(&format!("let {} = {}.len() as i32;\n", len, val));
-                if realloc.is_some() {
-                    self.push_str(&format!("::core::mem::forget({});\n", val));
-                }
-                results.push(ptr);
-                results.push(len);
             }
 
             Instruction::StringLift => {
-                let tmp = self.tmp();
-                let len = format!("len{}", tmp);
-                uwriteln!(self.src, "let {len} = {} as usize;", operands[1]);
+                let str = format!("str{}", self.tmp());
+                self.gen.gen.imported_builtins.insert("_mbt_unsafe_make_string");
                 uwriteln!(
-                    self.src,
-                    "let bytes{tmp} = Vec::from_raw_parts({} as *mut _, {len}, {len});",
-                    operands[0],
-                );
-                if self.gen.gen.opts.raw_strings {
-                    results.push(format!("bytes{tmp}"));
-                } else {
-                    results.push(format!(
-                        "{}::string_lift(bytes{tmp})",
-                        self.gen.gen.runtime_path()
-                    ));
-                }
+                            self.src,
+                            "let {str} = _mbt_unsafe_make_string({}, 0)",
+                            operands[1],
+                        );
+                self.gen.gen.imported_builtins.insert("_mbt_string_data");
+                self.gen.gen.imported_builtins.insert("_rael_memory_copy");
+                uwriteln!(
+                            self.src,
+                            "_rael_memory_copy(_mbt_string_data({str}), {}, {})",
+                            operands[0],
+                            operands[1],
+                        );
+                results.push(str);
             }
 
             Instruction::ListLower { element, realloc } => {
@@ -794,23 +766,18 @@ impl Bindgen for FunctionBindgen<'_, '_> {
 
             Instruction::IterBasePointer => results.push("base".to_string()),
 
-            Instruction::CallWasm { name, sig, .. } => {
-                let func = self.declare_import(
-                    self.gen.wasm_import_module.unwrap(),
-                    name,
-                    &sig.params,
-                    &sig.results,
-                );
+            Instruction::CallWasm { sig, .. } => {
+                let mut call = self.import_ffi_name.clone().unwrap();
+                call.push_str("(");
+                call.push_str(&operands.join(", "));
+                call.push_str(")");
 
-                // ... then call the function with all our operands
-                if !sig.results.is_empty() {
-                    self.push_str("let ret = ");
-                    results.push("ret".to_string());
+                if sig.results.is_empty() {
+                    self.push_str(&call);
+                    self.push_str("\n");
+                } else {
+                    results.push(call);
                 }
-                self.push_str(&func);
-                self.push_str("(");
-                self.push_str(&operands.join(", "));
-                self.push_str(");\n");
             }
 
             Instruction::CallInterface { func, .. } => {
@@ -818,7 +785,8 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                 match &func.kind {
                     FunctionKind::Freestanding => {
                         self.push_str(&format!(
-                            "<_GuestImpl as Guest>::{}",
+                            "guest_impl.{}.unwrap().{}",
+                            self.export_trait_field.as_deref().unwrap(),
                             to_mbt_ident(&func.name)
                         ));
                     }
@@ -872,11 +840,12 @@ impl Bindgen for FunctionBindgen<'_, '_> {
 
             Instruction::I32Load { offset } => {
                 let tmp = self.tmp();
-                uwriteln!(
-                    self.src,
-                    "let l{tmp} = *(({} + {offset}) as *const i32);",
-                    operands[0]
-                );
+                self.gen.gen.imported_builtins.insert("_rael_load_i32");
+                uwrite!(self.src, "let l{tmp} = _rael_load_i32({}", operands[0]);
+                if *offset > 0 {
+                    uwrite!(self.src, " + {offset}");
+                }
+                uwriteln!(self.src, ")");
                 results.push(format!("l{tmp}"));
             }
             Instruction::I32Load8U { offset } => {
@@ -917,11 +886,12 @@ impl Bindgen for FunctionBindgen<'_, '_> {
             }
             Instruction::I64Load { offset } => {
                 let tmp = self.tmp();
-                uwriteln!(
-                    self.src,
-                    "let l{tmp} = *(({} + {offset}) as *const i64);",
-                    operands[0]
-                );
+                self.gen.gen.imported_builtins.insert("_rael_load_i64");
+                uwrite!(self.src, "let l{tmp} = _rael_load_i64({}", operands[0]);
+                if *offset > 0 {
+                    uwrite!(self.src, " + {offset}");
+                }
+                uwriteln!(self.src, ")");
                 results.push(format!("l{tmp}"));
             }
             Instruction::F32Load { offset } => {

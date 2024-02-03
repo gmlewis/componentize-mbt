@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
-use crate::interface::InterfaceGenerator;
-use anyhow::{bail, Result};
-use heck::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{self, Write as _};
 use std::mem;
 use std::str::FromStr;
+
+use anyhow::{bail, Result};
+use heck::*;
 use wit_bindgen_core::abi::{Bitcast, WasmType};
 use wit_bindgen_core::{
     uwriteln, wit_parser::*, Direction, Files, InterfaceGenerator as _, Source, Types,
@@ -36,7 +36,7 @@ struct InterfaceName {
 }
 
 #[derive(Default)]
-struct MoonBit {
+pub struct MoonBit {
     types: Types,
     src: Source,
     opts: Opts,
@@ -47,6 +47,9 @@ struct MoonBit {
     resources: HashMap<TypeId, ResourceInfo>,
     import_funcs_called: bool,
     with_name_counter: usize,
+    export_traits: HashMap<String, String>,
+    imported_builtins: HashSet<&'static str>,
+    pub exported_symbols: HashMap<String, String>,
 }
 
 #[derive(Clone, Eq)]
@@ -237,11 +240,11 @@ impl MoonBit {
         wasm_import_module: Option<&'a str>,
         resolve: &'a Resolve,
         in_import: bool,
-    ) -> InterfaceGenerator<'a> {
+    ) -> interface::InterfaceGenerator<'a> {
         let mut sizes = SizeAlign::default();
         sizes.fill(resolve);
 
-        InterfaceGenerator {
+        interface::InterfaceGenerator {
             identifier,
             wasm_import_module,
             src: Source::default(),
@@ -587,6 +590,51 @@ impl WorldGenerator for MoonBit {
             }
         }
 
+        uwriteln!(self.src, "struct GuestImpl {{");
+        for (trait_name, field) in self.export_traits.iter() {
+            uwriteln!(self.src, "mut {field}: Option[{trait_name}]");
+        }
+        uwriteln!(self.src, "}} derive(Default)");
+        uwriteln!(self.src, "");
+        uwriteln!(self.src, "let guest_impl: GuestImpl = GuestImpl::default()");
+        uwriteln!(self.src, "");
+        self.src.push_str("pub fn init_guest[T: ");
+        self.src.push_str(
+            &self
+                .export_traits
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(" + "),
+        );
+        uwriteln!(self.src, "](guest: T) {{");
+        for (trait_name, field) in self.export_traits.iter() {
+            uwriteln!(self.src, "guest_impl.{field} = Some(guest as {trait_name})");
+        }
+        uwriteln!(self.src, "}}\n");
+
+        let mut builtins = self.imported_builtins.iter().collect::<Vec<_>>();
+        builtins.sort();
+        for (i, builtin) in builtins.into_iter().enumerate() {
+            if i > 0 {
+                uwriteln!(self.src, "");
+            }
+            let def = match *builtin {
+                "_rael_malloc" => "(size: Int) -> Int = \"$rael.malloc\"",
+                "_rael_free" => "(ptr: Int) = \"$rael.free\"",
+                "_rael_memory_copy" => "(dst: Int, src: Int, len: Int) = \"$rael.memory_copy\"",
+                "_rael_load_i32" => "(ptr: Int) -> Int = \"$rael.load_i32\"",
+                "_rael_load_i64" => "(ptr: Int) -> Int64 = \"$rael.load_i64\"",
+                "_rael_bytes_data" => "(b: Bytes) -> Int = \"$rael.bytes_data\"",
+                "_mbt_string_data" => "(s: String) -> Int = \"$moonbit.string_data\"",
+                "_mbt_unsafe_make_string" => {
+                    "(len: Int, val: Int) -> String = \"$moonbit.unsafe_make_string\""
+                },
+                _ => unreachable!()
+            };
+            uwriteln!(self.src, "fn {builtin}{def}");
+        }
+
         let src = mem::take(&mut self.src);
         let module_name = name.to_snake_case();
         files.push(&format!("{module_name}.mbt"), src.as_bytes());
@@ -623,6 +671,7 @@ fn compute_module_path(name: &WorldKey, resolve: &Resolve, is_export: bool) -> V
 }
 
 enum Identifier<'a> {
+    #[allow(dead_code)]
     World(WorldId),
     Interface(InterfaceId, &'a WorldKey),
 }
@@ -753,10 +802,10 @@ fn to_upper_camel_case(name: &str) -> String {
 
 fn wasm_type(ty: WasmType) -> &'static str {
     match ty {
-        WasmType::I32 => "i32",
-        WasmType::I64 => "i64",
-        WasmType::F32 => "f32",
-        WasmType::F64 => "f64",
+        WasmType::I32 => "Int",
+        WasmType::I64 => "Int64",
+        WasmType::F32 => "Float",
+        WasmType::F64 => "Float64",
     }
 }
 
