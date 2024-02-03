@@ -9,7 +9,7 @@ use wit_parser::{Resolve, UnresolvedPackage};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 enum Opt {
-    BindGen {
+    Bindgen {
         #[clap(flatten)]
         opts: wit_bindgen_mbt::Opts,
         #[clap(flatten)]
@@ -35,7 +35,7 @@ struct Common {
 
 fn main() -> Result<()> {
     match Opt::parse() {
-        Opt::BindGen { opts, args } => {
+        Opt::Bindgen { opts, args } => {
             let mut files = Files::default();
             let mut resolve = Resolve::default();
             let pkg = if args.wit.is_dir() {

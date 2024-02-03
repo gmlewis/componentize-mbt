@@ -16,7 +16,7 @@ wasm-metadata = "0.10.16"
 wit-component = "0.20.0"
 wit-bindgen-core = "0.16.0"
 wit-parser = "0.13.1"
-wit-bindgen-mbt = { path = "crates/mbt", version = "0.1.0", features = ["clap"] }
+wit-bindgen-mbt = { path = "crates/bindgen", version = "0.1.0", features = ["clap"] }
 
 [[bin]]
 name = "componentize-mbt"
