@@ -14,7 +14,7 @@ use wit_component::{embed_component_metadata, ComponentEncoder, StringEncoding};
 
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Opts {
-    #[clap(long)]
+    #[cfg_attr(feature = "clap", arg(long))]
     wat: PathBuf,
 }
 

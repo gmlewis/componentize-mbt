@@ -1,3 +1,8 @@
+// This file was derived from:
+// https://github.com/bytecodealliance/wit-bindgen/blob/442f0054fef4a7ff3c7fa59cbce7f9024569c5bc/crates/rust/src/lib.rs
+// Copyright: Alex Crichton <alex@alexcrichton.com> and original contributors.
+// Modification to work with MoonBit is done by Fantix King <fantix.king@gmail.com>.
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{self, Write as _};

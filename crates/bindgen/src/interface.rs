@@ -1,3 +1,8 @@
+// This file was derived from:
+// https://github.com/bytecodealliance/wit-bindgen/blob/442f0054fef4a7ff3c7fa59cbce7f9024569c5bc/crates/rust/src/interface.rs
+// Copyright: Alex Crichton <alex@alexcrichton.com> and original contributors.
+// Modification to work with MoonBit is done by Fantix King <fantix.king@gmail.com>.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::mem;

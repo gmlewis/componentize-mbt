@@ -1,7 +1,15 @@
 [package]
 name = "componentize-mbt-cli"
 version = "0.1.0"
+authors = ["Fantix King <fantix.king@gmail.com>"]
 edition = { workspace = true }
+license = "MulanPSL-2.0"
+repository = "https://gitee.com/fantix/componentize-mbt"
+homepage = "https://gitee.com/fantix/componentize-mbt"
+readme = "README.md"
+categories = ["wasm"]
+keywords = ["webassembly", "wasm", "moonbit"]
+description = "CLI tool for MoonBit support of the WASM compoment model."
 
 [workspace]
 exclude = ["examples/basic", "examples/wasi"]
