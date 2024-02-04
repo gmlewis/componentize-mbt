@@ -106,6 +106,6 @@ test "extern call" {
 #. 将 spectest 的 import 删掉（之后会改成 WIT import）；
 #. 将 `moonbit.memory` 重命名为 `memory`；
 #. 增加 component lift/lower 所需的 WASM 函数；
-#. 将 `_start` 重命名为 `mbt-init`；
+#. 将 `export _start` 修改为 `start`；
 #. 增加 component 封装；
 #. 导出 `.wasm` 文件。
