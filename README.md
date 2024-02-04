@@ -6,17 +6,17 @@
 
 ## 用法
 
-#. 在 MoonBit 项目根目录下，创建 `wit` 文件夹；
-#. 在 `wit` 文件夹下，按需创建 `.wit` 文件；
-#. 如有需要，可创建 `wit/deps.toml` 文件，安装 `cargo install wit-deps-cli`
+1. 在 MoonBit 项目根目录下，创建 `wit` 文件夹；
+2. 在 `wit` 文件夹下，按需创建 `.wit` 文件；
+3. 如有需要，可创建 `wit/deps.toml` 文件，安装 `cargo install wit-deps-cli`
    进行依赖管理，比如引入 WASI 的接口；
-#. 执行 `cargo run -- bindgen wit -w ...` 生成 WIT 对应的 MoonBit 绑定代码；
-#. 使用新生成的代码，完成项目功能；如在 WIT 中 export 了接口，则须实现对应的 trait，并调用
+4. 执行 `cargo run -- bindgen wit -w ...` 生成 WIT 对应的 MoonBit 绑定代码；
+5. 使用新生成的代码，完成项目功能；如在 WIT 中 export 了接口，则须实现对应的 trait，并调用
    `init_guest()` 安置实现实例；
-#. 执行 `moon build --output-wat` 编译出 WAT（这里之所以不用 wasm，是利用了 MoonBit
+6. 执行 `moon build --output-wat` 编译出 WAT（这里之所以不用 wasm，是利用了 MoonBit
    的一个隐藏缺陷，生成 WAT 时并不会检查 ABI import，便于我们下一步链接 component 相关的
    wasm 代码）；
-#. 执行 `cargo run -- componentize wit --wat ...`，将 WAT 包装成 component WASM。
+7. 执行 `cargo run -- componentize wit --wat ...`，将 WAT 包装成 component WASM。
 
 ## `bind-gen`
 
@@ -102,10 +102,10 @@ test "extern call" {
 [component model 规范](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md)的
 `.wasm` 文件。实现流程：
 
-#. 在内存中重新执行 bindgen，找到 export symbol；
-#. 将 spectest 的 import 删掉（之后会改成 WIT import）；
-#. 将 `moonbit.memory` 重命名为 `memory`；
-#. 增加 component lift/lower 所需的 WASM 函数；
-#. 将 `export _start` 修改为 `start`；
-#. 增加 component 封装；
-#. 导出 `.wasm` 文件。
+1. 在内存中重新执行 bindgen，找到 export symbol 并替换（等 MoonBit 支持自定义 FFI export 名称后即可删除）；
+2. 将 spectest 的 import 删掉（之后会改成 WIT import）；
+3. 将 `moonbit.memory` 重命名为 `memory`；
+4. 增加 component lift/lower 所需的 WASM 函数；
+5. 将 `export _start` 修改为 `start`；
+6. 增加 component 封装；
+7. 导出 `.wasm` 文件。
