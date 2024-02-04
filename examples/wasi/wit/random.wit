@@ -1,0 +1,6 @@
+package fantix:examples;
+
+world wasi-demo {
+  import wasi:random/random@0.2.0;
+  export nonsense: func() -> u64;
+}
