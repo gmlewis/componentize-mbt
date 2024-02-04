@@ -1,6 +1,6 @@
 # componentize-mbt
 
-在 MoonBit 正式支持
+在 [MoonBit](https://www.moonbitlang.com/) 正式支持
 [component model](https://github.com/WebAssembly/component-model)
 之前，临时用于构建 component 的命令行工具。
 
