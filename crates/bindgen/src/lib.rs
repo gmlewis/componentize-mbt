@@ -49,7 +49,7 @@ pub struct MoonBit {
     with_name_counter: usize,
     export_traits: HashMap<String, String>,
     imported_builtins: HashSet<&'static str>,
-    pub exported_symbols: HashMap<String, String>,
+    pub exported_symbols: HashMap<String, (String, bool)>,
 }
 
 #[derive(Clone, Eq)]

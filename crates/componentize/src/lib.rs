@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
+use std::{fs, mem};
 
 use wast::core::{
     Func, FuncKind, Import, InlineExport, Instruction, Memory, Module, ModuleField, ModuleKind,
@@ -38,7 +38,7 @@ impl Opts {
     }
 }
 
-pub fn componentize(wat: &str, mut resolve: Resolve, world: WorldId) -> anyhow::Result<Vec<u8>> {
+pub fn componentize(wat: &str, resolve: Resolve, world: WorldId) -> anyhow::Result<Vec<u8>> {
     // 再跑一遍 bindgen 取回 exported_symbols，等到 MoonBit 支持自定义 FFI export 名称后，删除此 HACK
     let mut gen = wit_bindgen_mbt::MoonBit::default();
     gen.generate(&resolve, world, &mut Files::default())?;
@@ -119,12 +119,27 @@ pub fn componentize(wat: &str, mut resolve: Resolve, world: WorldId) -> anyhow::
                 ModuleField::Func(Func {
                     kind: FuncKind::Inline { expression, .. },
                     exports,
+                    ty,
                     ..
                 }) => {
                     if exports.names.len() == 1 {
                         if let Some((_, key)) = exports.names[0].split_once("::") {
-                            if let Some(symbol) = exported_symbols.get(key) {
-                                exports.names[0] = symbol
+                            if let Some((symbol, has_rv)) = exported_symbols.get(key) {
+                                exports.names[0] = symbol;
+
+                                // 似乎是 MoonBit 的一个 bug —— pub fn 没有返回值，但 WASM func 却返回 i32
+                                if !has_rv {
+                                    if let Some(ty) = &mut ty.inline {
+                                        if ty.results.len() == 1 {
+                                            ty.results = Box::new([]);
+                                            let mut instrs = Default::default();
+                                            mem::swap(&mut expression.instrs, &mut instrs);
+                                            let mut instrs = instrs.into_vec();
+                                            instrs.push(Instruction::Drop);
+                                            expression.instrs = instrs.into();
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

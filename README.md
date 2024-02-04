@@ -106,6 +106,7 @@ test "extern call" {
 2. 将 spectest 的 import 删掉（之后会改成 WIT import）；
 3. 将 `moonbit.memory` 重命名为 `memory`；
 4. 增加 component lift/lower 所需的 WASM 函数；
-5. 将 `export _start` 修改为 `start`；
-6. 增加 component 封装；
-7. 导出 `.wasm` 文件。
+5. 修正 MoonBit 无返回值 pub fn 被编译成返回 i32 的问题（？）；
+6. 将 `export _start` 修改为 `start`；
+7. 增加 component 封装；
+8. 导出 `.wasm` 文件。

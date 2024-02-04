@@ -335,10 +335,6 @@ impl InterfaceGenerator<'_> {
         };
         let export_prefix = self.gen.opts.export_prefix.as_deref().unwrap_or("");
         let export_name = func.core_export_name(wasm_module_export_name.as_deref());
-        self.gen.exported_symbols.insert(
-            format!("__export_{name_snake}"),
-            format!("{export_prefix}{export_name}"),
-        );
         uwrite!(
             self.src,
             "
@@ -356,13 +352,18 @@ impl InterfaceGenerator<'_> {
         }
         self.src.push_str(")");
 
-        match sig.results.len() {
-            0 => {}
+        let has_rv = match sig.results.len() {
+            0 => false,
             1 => {
                 uwrite!(self.src, " -> {}", wasm_type(sig.results[0]));
+                true
             }
             _ => unimplemented!(),
-        }
+        };
+        self.gen.exported_symbols.insert(
+            format!("__export_{name_snake}"),
+            (format!("{export_prefix}{export_name}"), has_rv),
+        );
 
         self.push_str(" {\n");
 
@@ -394,7 +395,7 @@ impl InterfaceGenerator<'_> {
             let export_prefix = self.gen.opts.export_prefix.as_deref().unwrap_or("");
             self.gen.exported_symbols.insert(
                 format!("__post_return_{name_snake}"),
-                format!("{export_prefix}cabi_post_{export_name}"),
+                (format!("{export_prefix}cabi_post_{export_name}"), false),
             );
             uwrite!(
                 self.src,
