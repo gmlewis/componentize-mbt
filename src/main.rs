@@ -1,10 +1,9 @@
-mod build;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::path::PathBuf;
 use wit_bindgen_core::Files;
-use wit_parser::{Resolve, UnresolvedPackage};
+use wit_parser::{Resolve, UnresolvedPackage, WorldId};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -12,12 +11,16 @@ enum Opt {
     Bindgen {
         #[clap(flatten)]
         opts: wit_bindgen_mbt::Opts,
+
         #[clap(flatten)]
         args: Common,
     },
-    Build {
+    Componentize {
         #[clap(flatten)]
-        opts: build::Opts,
+        opts: componentize_mbt::Opts,
+
+        #[clap(flatten)]
+        args: Common,
     },
 }
 
@@ -33,21 +36,28 @@ struct Common {
     world: Option<String>,
 }
 
+impl Common {
+    fn parse_wit(&self) -> Result<(Resolve, WorldId)> {
+        let mut resolve = Resolve::default();
+        let pkg = if self.wit.is_dir() {
+            resolve.push_dir(&self.wit)?.0
+        } else {
+            resolve.push(UnresolvedPackage::parse_file(&self.wit)?)?
+        };
+        let world = resolve.select_world(pkg, self.world.as_deref())?;
+        Ok((resolve, world))
+    }
+}
+
 fn main() -> Result<()> {
     match Opt::parse() {
-        Opt::Bindgen { opts, args } => {
+        Opt::Bindgen { opts, args} => {
             let mut files = Files::default();
-            let mut resolve = Resolve::default();
-            let pkg = if args.wit.is_dir() {
-                resolve.push_dir(&args.wit)?.0
-            } else {
-                resolve.push(UnresolvedPackage::parse_file(&args.wit)?)?
-            };
-            let world = resolve.select_world(pkg, args.world.as_deref())?;
+            let (resolve, world) = args.parse_wit()?;
             opts.build().generate(&resolve, world, &mut files)?;
             for (name, contents) in files.iter() {
                 let dst = match &args.out_dir {
-                    Some(path) => path.join(name),
+                    Some(ref path) => path.join(name),
                     None => name.into(),
                 };
                 println!("Generating {:?}", dst);
@@ -59,8 +69,9 @@ fn main() -> Result<()> {
                     .with_context(|| format!("failed to write {:?}", dst))?;
             }
         }
-        Opt::Build { opts } => {
-            opts.run()?;
+        Opt::Componentize { opts, args } => {
+            let (resolve, world) = args.parse_wit()?;
+            opts.run(resolve, world, args.out_dir)?;
         }
     }
 

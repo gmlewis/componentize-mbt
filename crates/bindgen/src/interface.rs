@@ -85,7 +85,7 @@ impl InterfaceGenerator<'_> {
         let mut traits = BTreeMap::new();
 
         for func in funcs {
-            if self.gen.skip.contains(&func.name) || func.name == "mbt-init" {
+            if self.gen.skip.contains(&func.name) {
                 continue;
             }
 
@@ -324,7 +324,7 @@ impl InterfaceGenerator<'_> {
     }
 
     fn generate_guest_export(&mut self, func: &Function, field: String) {
-        if self.gen.skip.contains(&func.name) || func.name == "mbt-init" {
+        if self.gen.skip.contains(&func.name) {
             return;
         }
 
