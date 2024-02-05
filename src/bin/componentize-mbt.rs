@@ -1,12 +1,23 @@
+use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use wit_bindgen_core::Files;
 use wit_parser::{Resolve, UnresolvedPackage, WorldId};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
+struct Cli {
+    #[clap(short, long)]
+    world: Option<String>,
+
+    #[command(subcommand)]
+    opts: Option<Opt>,
+}
+
+#[derive(Subcommand)]
 enum Opt {
     Bindgen {
         #[clap(flatten)]
@@ -29,31 +40,30 @@ struct Common {
     #[clap(long = "out-dir")]
     out_dir: Option<PathBuf>,
 
-    #[clap(value_name = "DOCUMENT", index = 1)]
+    #[clap(value_name = "DOCUMENT", index = 1, default_value = "wit")]
     wit: PathBuf,
-
-    #[clap(short, long)]
-    world: Option<String>,
 }
 
 impl Common {
-    fn parse_wit(&self) -> Result<(Resolve, WorldId)> {
+    fn parse_wit(&self, world: Option<&str>) -> Result<(Resolve, WorldId)> {
         let mut resolve = Resolve::default();
         let pkg = if self.wit.is_dir() {
             resolve.push_dir(&self.wit)?.0
         } else {
             resolve.push(UnresolvedPackage::parse_file(&self.wit)?)?
         };
-        let world = resolve.select_world(pkg, self.world.as_deref())?;
+        let world = resolve.select_world(pkg, world)?;
         Ok((resolve, world))
     }
 }
 
 fn main() -> Result<()> {
-    match Opt::parse() {
-        Opt::Bindgen { opts, args} => {
+    let cli = Cli::parse();
+    let world = cli.world.as_deref();
+    match cli.opts {
+        Some(Opt::Bindgen { opts, args }) => {
             let mut files = Files::default();
-            let (resolve, world) = args.parse_wit()?;
+            let (resolve, world) = args.parse_wit(world)?;
             opts.build().generate(&resolve, world, &mut files)?;
             for (name, contents) in files.iter() {
                 let dst = match &args.out_dir {
@@ -62,18 +72,82 @@ fn main() -> Result<()> {
                 };
                 println!("Generating {:?}", dst);
                 if let Some(parent) = dst.parent() {
-                    std::fs::create_dir_all(parent)
+                    fs::create_dir_all(parent)
                         .with_context(|| format!("failed to create {:?}", parent))?;
                 }
-                std::fs::write(&dst, contents)
-                    .with_context(|| format!("failed to write {:?}", dst))?;
+                fs::write(&dst, contents).with_context(|| format!("failed to write {:?}", dst))?;
             }
         }
-        Opt::Componentize { opts, args } => {
-            let (resolve, world) = args.parse_wit()?;
+        Some(Opt::Componentize { opts, args }) => {
+            let (resolve, world) = args.parse_wit(world)?;
             opts.run(resolve, world, args.out_dir)?;
         }
+        None => build(world)?,
     }
 
+    Ok(())
+}
+
+fn build(world: Option<&str>) -> Result<()> {
+    if !PathBuf::from("moon.mod.json").exists() {
+        anyhow::bail!("必须在项目根目录执行 componentize-mbt build！");
+    }
+    let mut iter = fs::read_dir(".")?
+        .map(|r| -> Result<_> {
+            let r = r?;
+            let p = r.path();
+            let j = p.join("moon.pkg.json");
+            if !j.exists() {
+                return Ok(None);
+            }
+            let json = fs::read_to_string(&j)?;
+            let json: serde_json::Value = serde_json::from_str(&json)?;
+            let json = json
+                .as_object()
+                .ok_or_else(|| anyhow::anyhow!("{j:?} 格式错误！"))?;
+            if let Some(is_main) = json.get("is_main") {
+                let is_main = is_main
+                    .as_bool()
+                    .ok_or_else(|| anyhow::anyhow!("{j:?} 格式错误！"))?;
+                Ok(is_main.then(|| r.file_name()))
+            } else {
+                Ok(None)
+            }
+        })
+        .map(|r| r.transpose())
+        .flatten();
+    let pkg_name = iter
+        .next()
+        .transpose()?
+        .ok_or_else(|| anyhow::anyhow!("至少得有一个 MoonBit 包的 is_main 为真。"))?;
+    if iter.next().transpose()?.is_some() {
+        anyhow::bail!("目前仅支持一个 MoonBit 包的 is_main 为真。");
+    }
+
+    let mut cmd = Command::new("moon");
+    let cmd = cmd.arg("build").arg("--output-wat");
+    println!("执行：{cmd:?}");
+    let status = cmd.status()?;
+    if !status.success() {
+        anyhow::bail!("moon build 失败了");
+    }
+
+    let wat_file = PathBuf::from("target/wasm/release/build/")
+        .join(&pkg_name)
+        .join(&pkg_name)
+        .with_extension("wat");
+    if !wat_file.exists() {
+        anyhow::bail!("{wat_file:?} 不存在");
+    }
+
+    let mut resolve = Resolve::default();
+    let pkg = resolve.push_dir(&PathBuf::from("wit"))?.0;
+    let world = resolve.select_world(pkg, world)?;
+
+    let wasm = componentize_mbt::componentize(&fs::read_to_string(&wat_file)?, resolve, world)?;
+
+    let target = wat_file.with_extension("wasm");
+    fs::write(&target, wasm)?;
+    println!("成功生成：{target:?}");
     Ok(())
 }

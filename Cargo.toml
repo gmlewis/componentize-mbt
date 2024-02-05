@@ -1,6 +1,6 @@
 [package]
 name = "componentize-mbt-cli"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Fantix King <fantix.king@gmail.com>"]
 edition = { workspace = true }
 license = "MulanPSL-2.0"
@@ -39,3 +39,4 @@ clap = { workspace = true }
 wit-parser = { workspace = true }
 wit-bindgen-mbt = { workspace = true }
 componentize-mbt = { workspace = true }
+serde_json = "1.0.113"

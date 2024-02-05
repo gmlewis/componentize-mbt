@@ -6,17 +6,22 @@
 
 ## 用法
 
-1. 在 MoonBit 项目根目录下，创建 `wit` 文件夹；
-2. 在 `wit` 文件夹下，按需创建 `.wit` 文件；
-3. 如有需要，可创建 `wit/deps.toml` 文件，安装 `cargo install wit-deps-cli`
+1. 安装：`cargo install componentize-mbt-cli`； 
+2. 在 MoonBit 项目根目录下，创建 `wit` 文件夹；
+3. 在 `wit` 文件夹下，按需创建 `.wit` 文件；
+4. 如有需要，可创建 `wit/deps.toml` 文件，安装 `cargo install wit-deps-cli`
    进行依赖管理，比如引入 WASI 的接口；
-4. 执行 `cargo run -- bindgen wit -w ...` 生成 WIT 对应的 MoonBit 绑定代码；
-5. 使用新生成的代码，完成项目功能；如在 WIT 中 export 了接口，则须实现对应的 trait，并调用
+5. 执行 `componentize-mbt bindgen --out-dir ...` 生成 WIT 对应的 MoonBit 绑定代码；
+6. 使用新生成的代码，完成项目功能；如在 WIT 中 export 了接口，则须实现对应的 trait，并调用
    `init_guest()` 安置实现实例；
-6. 执行 `moon build --output-wat` 编译出 WAT（这里之所以不用 wasm，是利用了 MoonBit
+7. 执行 `componentize-mbt` 构建 component。
+
+第 7 步相当于以下两步：
+
+1. 执行 `moon build --output-wat` 编译出 WAT（这里之所以不用 wasm，是利用了 MoonBit
    的一个隐藏缺陷，生成 WAT 时并不会检查 ABI import，便于我们下一步链接 component 相关的
    wasm 代码）；
-7. 执行 `cargo run -- componentize wit --wat ...`，将 WAT 包装成 component WASM。
+2. 执行 `componentize-mbt componentize wit --wat ...`，将 WAT 包装成 component WASM。
 
 ## `bind-gen`
 
