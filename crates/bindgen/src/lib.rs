@@ -612,7 +612,7 @@ impl WorldGenerator for MoonBit {
                 .collect::<Vec<_>>()
                 .join(" + "),
         );
-        uwriteln!(self.src, "](guest: T) {{");
+        uwriteln!(self.src, "](guest: T) -> Unit {{");
         for (trait_name, field) in self.export_traits.iter() {
             uwriteln!(self.src, "guest_impl.{field} = Some(guest as {trait_name})");
         }

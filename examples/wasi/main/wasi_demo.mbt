@@ -32,7 +32,7 @@ pub(readonly) type WasiRandomRandom Unit
 /// This function must always return fresh data. Deterministic environments
 /// must omit this function, rather than implementing it with deterministic
 /// data.
-pub fn get_random_bytes(self: WasiRandomRandom, len: Int64) -> Bytes{
+pub fn get_random_bytes(self: WasiRandomRandom, len: Int64) -> Bytes {
   let ret_area = _rael_malloc(8) // align: 4
   ffi_wasi_random_random_get_random_bytes(len, ret_area)
   let l0 = _rael_load_i32(ret_area)
@@ -49,7 +49,7 @@ fn ffi_wasi_random_random_get_random_bytes(p0: Int64, p1: Int) = "wasi:random/ra
 /// 
 /// This function returns the same type of data as `get-random-bytes`,
 /// represented as a `u64`.
-pub fn get_random_u64(self: WasiRandomRandom) -> Int64{
+pub fn get_random_u64(self: WasiRandomRandom) -> Int64 {
   ffi_wasi_random_random_get_random_u64()
 }
 
@@ -64,7 +64,7 @@ struct GuestImpl {
 
 let guest_impl: GuestImpl = GuestImpl::default()
 
-pub fn init_guest[T: Guest](guest: T) {
+pub fn init_guest[T: Guest](guest: T) -> Unit {
   guest_impl.t0 = Some(guest as Guest)
 }
 

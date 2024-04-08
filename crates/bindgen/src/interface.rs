@@ -254,7 +254,7 @@ impl InterfaceGenerator<'_> {
             }
         }
         let params = self.print_signature(func, param_mode, &sig);
-        self.src.push_str("{\n");
+        self.src.push_str(" {\n");
 
         let ffi_name = format!(
             "ffi_{}{}",
@@ -355,12 +355,15 @@ impl InterfaceGenerator<'_> {
             uwrite!(self.src, "{name}: {},", wasm_type(*param));
             params.push(name);
         }
-        self.src.push_str(")");
+        self.src.push_str(") -> ");
 
         let has_rv = match sig.results.len() {
-            0 => false,
+            0 => {
+                uwrite!(self.src, "Unit");
+                false
+            }
             1 => {
-                uwrite!(self.src, " -> {}", wasm_type(sig.results[0]));
+                uwrite!(self.src, "{}", wasm_type(sig.results[0]));
                 true
             }
             _ => unimplemented!(),
@@ -618,7 +621,9 @@ impl InterfaceGenerator<'_> {
 
     fn print_results(&mut self, results: &Results, mode: TypeMode) {
         match results.len() {
-            0 => {}
+            0 => {
+                self.push_str(" -> Unit");
+            }
             1 => {
                 self.push_str(" -> ");
                 self.print_ty(results.iter_types().next().unwrap(), mode);
