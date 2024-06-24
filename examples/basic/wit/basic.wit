@@ -1,13 +1,13 @@
 package fantix:examples;
 
 interface stdio {
-  /// 向标准输出打印一行文字
+  /// Print a line of text to standard output
   println: func(line: string);
 }
 
 world basic {
   import stdio;
 
-  /// 向指定人员问好
+  /// Say hello to a specified person
   export hello: func(name: string);
 }

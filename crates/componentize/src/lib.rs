@@ -39,12 +39,12 @@ impl Opts {
 }
 
 pub fn componentize(wat: &str, resolve: Resolve, world: WorldId) -> anyhow::Result<Vec<u8>> {
-    // 再跑一遍 bindgen 取回 exported_symbols，等到 MoonBit 支持自定义 FFI export 名称后，删除此 HACK
+    // Run `bindgen` again to retrieve exported_symbols. This HACK can be removed once MoonBit supports custom FFI export names
     let mut gen = wit_bindgen_mbt::MoonBit::default();
     gen.generate(&resolve, world, &mut Files::default())?;
     let exported_symbols = gen.exported_symbols;
 
-    // 一些用于 lift/lower 的 ABI 函数，等到 MoonBit 能直接支持了，就可以删除了
+    // Some ABI functions for lift/lower. These can be removed once MoonBit directly supports them
     let mut impls = HashMap::from([
         (
             "rael.memory_copy",

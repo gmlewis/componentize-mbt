@@ -1,12 +1,12 @@
-# WASI 示例
+# WASI Example
 
-先安装 `wit-deps` 的命令行工具：
+First, install the `wit-deps` command-line tool:
 
 ```
 cargo install wit-deps-cli
 ```
 
-然后执行 `make` 运行测试：
+Then run `make` to execute the tests:
 
 ```
 $ make

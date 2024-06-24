@@ -96,7 +96,10 @@ impl InterfaceGenerator<'_> {
 
             let (trait_name, export_key) = match func.kind {
                 FunctionKind::Freestanding => (
-                    module_name.map(|n| n.qual.as_str()).unwrap_or("Guest").into(),
+                    module_name
+                        .map(|n| n.qual.as_str())
+                        .unwrap_or("Guest")
+                        .into(),
                     self.export_key(None),
                 ),
                 FunctionKind::Method(id)
@@ -123,10 +126,7 @@ impl InterfaceGenerator<'_> {
 
             // Next generate a trait signature for this method and insert it
             // into `traits`. Note that `traits` will have a trait-per-resource.
-            let (_, methods) =
-                traits
-                    .entry(export_key)
-                    .or_insert((trait_name, Vec::new()));
+            let (_, methods) = traits.entry(export_key).or_insert((trait_name, Vec::new()));
             let prev = mem::take(&mut self.src);
             let mut sig = FnSig {
                 use_item_name: true,
@@ -286,7 +286,10 @@ impl InterfaceGenerator<'_> {
         assert!(handle_decls.is_empty());
         if import_return_pointer_area_size > 0 {
             self.gen.imported_builtins.insert("_rael_malloc");
-            uwrite!(self.src, "let ret_area = _rael_malloc({import_return_pointer_area_size})");
+            uwrite!(
+                self.src,
+                "let ret_area = _rael_malloc({import_return_pointer_area_size})"
+            );
             uwriteln!(self.src, " // align: {import_return_pointer_area_align}");
         }
         self.src.push_str(&String::from(src));
@@ -325,7 +328,6 @@ impl InterfaceGenerator<'_> {
         self.src.push_str("\" \"");
         self.src.push_str(&func.name);
         self.src.push_str("\"\n\n");
-
     }
 
     fn generate_guest_export(&mut self, func: &Function, field: String) {
@@ -861,9 +863,7 @@ impl InterfaceGenerator<'_> {
             mode
         };
         match ty {
-            Type::U8 => {
-                self.push_str("Bytes")
-            },
+            Type::U8 => self.push_str("Bytes"),
             Type::Bool
             | Type::U16
             | Type::U32

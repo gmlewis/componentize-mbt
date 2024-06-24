@@ -90,7 +90,7 @@ fn main() -> Result<()> {
 
 fn build(world: Option<&str>) -> Result<()> {
     if !PathBuf::from("moon.mod.json").exists() {
-        anyhow::bail!("必须在项目根目录执行 componentize-mbt build！");
+        anyhow::bail!("You must execute componentize-mbt build in the project root directory!");
     }
     let mut iter = fs::read_dir(".")?
         .map(|r| -> Result<_> {
@@ -104,11 +104,11 @@ fn build(world: Option<&str>) -> Result<()> {
             let json: serde_json::Value = serde_json::from_str(&json)?;
             let json = json
                 .as_object()
-                .ok_or_else(|| anyhow::anyhow!("{j:?} 格式错误！"))?;
+                .ok_or_else(|| anyhow::anyhow!("{j:?} Format error!"))?;
             if let Some(is_main) = json.get("is_main") {
                 let is_main = is_main
                     .as_bool()
-                    .ok_or_else(|| anyhow::anyhow!("{j:?} 格式错误！"))?;
+                    .ok_or_else(|| anyhow::anyhow!("{j:?} Format error!"))?;
                 Ok(is_main.then(|| r.file_name()))
             } else {
                 Ok(None)
@@ -116,20 +116,19 @@ fn build(world: Option<&str>) -> Result<()> {
         })
         .map(|r| r.transpose())
         .flatten();
-    let pkg_name = iter
-        .next()
-        .transpose()?
-        .ok_or_else(|| anyhow::anyhow!("至少得有一个 MoonBit 包的 is_main 为真。"))?;
+    let pkg_name = iter.next().transpose()?.ok_or_else(|| {
+        anyhow::anyhow!("At least one MoonBit package must have is_main set to true.")
+    })?;
     if iter.next().transpose()?.is_some() {
-        anyhow::bail!("目前仅支持一个 MoonBit 包的 is_main 为真。");
+        anyhow::bail!("Currently, only one MoonBit package can have is_main set to true.");
     }
 
     let mut cmd = Command::new("moon");
     let cmd = cmd.arg("build").arg("--output-wat");
-    println!("执行：{cmd:?}");
+    println!("Execute: {cmd:?}");
     let status = cmd.status()?;
     if !status.success() {
-        anyhow::bail!("moon build 失败了");
+        anyhow::bail!("moon build failed");
     }
 
     let wat_file = PathBuf::from("target/wasm/release/build/")
@@ -137,7 +136,7 @@ fn build(world: Option<&str>) -> Result<()> {
         .join(&pkg_name)
         .with_extension("wat");
     if !wat_file.exists() {
-        anyhow::bail!("{wat_file:?} 不存在");
+        anyhow::bail!("{wat_file:?} does not exist");
     }
 
     let mut resolve = Resolve::default();
@@ -148,6 +147,6 @@ fn build(world: Option<&str>) -> Result<()> {
 
     let target = wat_file.with_extension("wasm");
     fs::write(&target, wasm)?;
-    println!("成功生成：{target:?}");
+    println!("Successfully generated: {target:?}");
     Ok(())
 }

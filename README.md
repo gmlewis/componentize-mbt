@@ -1,34 +1,29 @@
 # componentize-mbt
 
-在 [MoonBit](https://www.moonbitlang.com/) 正式支持
-[component model](https://github.com/WebAssembly/component-model)
-之前，临时用于构建 component 的命令行工具。
+This is a translation from Chinese to English of this repo: https://gitee.com/fantix/componentize-mbt
 
-## 用法
+A temporary command-line tool for building components before [MoonBit](https://www.moonbitlang.com/) officially supports the [component model](https://github.com/WebAssembly/component-model).
 
-1. 安装：`cargo install componentize-mbt-cli`； 
-2. 在 MoonBit 项目根目录下，创建 `wit` 文件夹；
-3. 在 `wit` 文件夹下，按需创建 `.wit` 文件；
-4. 如有需要，可创建 `wit/deps.toml` 文件，安装 `cargo install wit-deps-cli`
-   进行依赖管理，比如引入 WASI 的接口；
-5. 执行 `componentize-mbt bindgen --out-dir ...` 生成 WIT 对应的 MoonBit 绑定代码；
-6. 使用新生成的代码，完成项目功能；如在 WIT 中 export 了接口，则须实现对应的 trait，并调用
-   `init_guest()` 安置实现实例；
-7. 执行 `componentize-mbt` 构建 component。
+## Usage
 
-第 7 步相当于以下两步：
+1. Install: `cargo install componentize-mbt-cli`;
+2. Create a `wit` folder in the root directory of your MoonBit project;
+3. Create `.wit` files as needed in the `wit` folder;
+4. If necessary, create a `wit/deps.toml` file and install `cargo install wit-deps-cli` for dependency management, such as importing WASI interfaces;
+5. Run `componentize-mbt bindgen --out-dir ...` to generate MoonBit binding code corresponding to the WIT;
+6. Use the newly generated code to complete project functionality; if interfaces are exported in WIT, implement the corresponding traits and call `init_guest()` to set up the implementation instance;
+7. Run `componentize-mbt` to build the component.
 
-1. 执行 `moon build --output-wat` 编译出 WAT（这里之所以不用 wasm，是利用了 MoonBit
-   的一个隐藏缺陷，生成 WAT 时并不会检查 ABI import，便于我们下一步链接 component 相关的
-   wasm 代码）；
-2. 执行 `componentize-mbt componentize wit --wat ...`，将 WAT 包装成 component WASM。
+Step 7 is equivalent to the following two steps:
+
+1. Run `moon build --output-wat` to compile to WAT (using WAT instead of WASM here takes advantage of a hidden flaw in MoonBit: generating WAT doesn't check ABI imports, making it easier for us to link component-related WASM code in the next step);
+2. Run `componentize-mbt componentize wit --wat ...` to wrap the WAT into a component WASM.
 
 ## `bind-gen`
 
-读取 [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md)
-文件，生成 MoonBit 的 binding 代码。
+Reads [WIT](https://github.com/WebAssembly/component-model/blob/main/design/mvp/WIT.md) files and generates MoonBit binding code.
 
-### Import 生成示例
+### Import Generation Example
 
 ```
 pub(readonly) struct Wasi {
@@ -57,7 +52,7 @@ test "use import" {
 }
 ```
 
-### Export 生成示例
+### Export Generation Example
 
 ```
 pub trait ExportsWasiClocksMonotonicClock  {
@@ -79,7 +74,7 @@ pub fn __export_now() -> Int64 {
   guest_impl.wasi_clocks_monotonic_clock.unwrap().now()
 }
 
-// 用户端代码
+// User-side code
 
 struct App {}
 
@@ -103,15 +98,13 @@ test "extern call" {
 
 ## `componentize`
 
-输入 WIT 和一个 `.wat` 文件，合成出符合
-[component model 规范](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md)的
-`.wasm` 文件。实现流程：
+Takes WIT and a `.wat` file as input, and synthesizes a `.wasm` file conforming to the [component model specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md). Implementation process:
 
-1. 在内存中重新执行 bindgen，找到 export symbol 并替换（等 MoonBit 支持自定义 FFI export 名称后即可删除）；
-2. 将 spectest 的 import 删掉（之后会改成 WIT import）；
-3. 将 `moonbit.memory` 重命名为 `memory`；
-4. 增加 component lift/lower 所需的 WASM 函数；
-5. 修正 MoonBit 无返回值 pub fn 被编译成返回 i32 的问题（？）；
-6. 将 `export _start` 修改为 `start`；
-7. 增加 component 封装；
-8. 导出 `.wasm` 文件。
+1. Re-execute bindgen in memory to find and replace export symbols (can be removed once MoonBit supports custom FFI export names);
+2. Remove spectest imports (will be changed to WIT imports later);
+3. Rename `moonbit.memory` to `memory`;
+4. Add WASM functions required for component lift/lower;
+5. Fix the issue where MoonBit compiles pub fn with no return value to return i32 (?);
+6. Change `export _start` to `start`;
+7. Add component encapsulation;
+8. Export the `.wasm` file.

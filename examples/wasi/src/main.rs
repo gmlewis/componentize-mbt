@@ -40,7 +40,7 @@ impl Default for MyState {
 
 fn main() -> anyhow::Result<()> {
     let engine = Engine::new(Config::new().wasm_component_model(true))?;
-    let wasm = env::args().skip(1).next().expect("参数");
+    let wasm = env::args().skip(1).next().expect("bad args");
     let component = Component::from_file(&engine, wasm)?;
     let mut store = Store::new(&engine, MyState::default());
     let mut linker = Linker::new(&engine);

@@ -1,6 +1,6 @@
-# 基础示例
+# Basic Example
 
-执行 `make` 进行测试：
+Run `make` to perform the test:
 
 ```
 $ make
@@ -28,5 +28,5 @@ cargo run -- target/wasm/release/build/main/main.wasm
    Compiling basic v0.1.0 (examples/basic)
     Finished dev [unoptimized + debuginfo] target(s) in 2.57s
      Running `target/debug/basic target/wasm/release/build/main/main.wasm`
-你好，小熊！
+Hello, little bear!
 ```
