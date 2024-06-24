@@ -7,3 +7,7 @@ fn Guest::hello(self : Impl, name : String) -> Unit {
 fn init {
   init_guest(Impl::{  })
 }
+
+fn main {
+
+}

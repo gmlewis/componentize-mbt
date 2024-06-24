@@ -345,8 +345,8 @@ impl InterfaceGenerator<'_> {
         uwrite!(
             self.src,
             "
-                // export_name = \"{export_prefix}{export_name}\"
-                pub fn __export_{name_snake}(\
+                // Exported: \"{export_name}\"
+                pub fn {name_snake}(\
             ",
         );
 

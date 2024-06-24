@@ -124,7 +124,7 @@ fn build(world: Option<&str>) -> Result<()> {
     }
 
     let mut cmd = Command::new("moon");
-    let cmd = cmd.arg("build").arg("--output-wat");
+    let cmd = cmd.arg("build").arg("--target=wasm").arg("--output-wat");
     println!("Execute: {cmd:?}");
     let status = cmd.status()?;
     if !status.success() {
