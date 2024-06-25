@@ -89,7 +89,7 @@ impl PartialEq<Self> for ModuleName {
 
 impl PartialOrd<Self> for ModuleName {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.qual.partial_cmp(&other.qual)
+        Some(self.cmp(other))
     }
 }
 
@@ -282,7 +282,12 @@ impl MoonBit {
         let inits = emit(&mut self.src, map, in_import);
         if in_import {
             for (snake, init) in inits {
-                uwriteln!(self.src, "pub let {}: {} = {init}\n", snake.snake, snake.qual);
+                uwriteln!(
+                    self.src,
+                    "pub let {}: {} = {init}\n",
+                    snake.snake,
+                    snake.qual
+                );
             }
         }
         fn emit(me: &mut Source, module: Module, in_import: bool) -> Vec<(ModuleName, String)> {
@@ -428,9 +433,7 @@ fn name_package_module(resolve: &Resolve, id: PackageId) -> String {
     // a simpler path is chosen to generate "foo0_1_0" and "foo0_2_0".
     let version = version
         .to_string()
-        .replace('.', "_")
-        .replace('-', "_")
-        .replace('+', "_")
+        .replace(['.', '-', '+'], "_")
         .to_snake_case();
     format!("{base}{version}")
 }
@@ -461,7 +464,10 @@ impl WorldGenerator for MoonBit {
         }
         gen.types(id);
 
-        gen.generate_imports(resolve.interfaces[id].functions.values(), module_path.last());
+        gen.generate_imports(
+            resolve.interfaces[id].functions.values(),
+            module_path.last(),
+        );
 
         gen.finish_append_submodule(module_path);
     }
@@ -496,7 +502,10 @@ impl WorldGenerator for MoonBit {
             return Ok(());
         }
         gen.types(id);
-        gen.generate_exports(resolve.interfaces[id].functions.values(), module_path.last())?;
+        gen.generate_exports(
+            resolve.interfaces[id].functions.values(),
+            module_path.last(),
+        )?;
         gen.finish_append_submodule(module_path);
         Ok(())
     }
@@ -634,8 +643,8 @@ impl WorldGenerator for MoonBit {
                 "_mbt_string_data" => "(s: String) -> Int = \"$moonbit.string_data\"",
                 "_mbt_unsafe_make_string" => {
                     "(len: Int, val: Int) -> String = \"$moonbit.unsafe_make_string\""
-                },
-                _ => unreachable!()
+                }
+                _ => unreachable!(),
             };
             uwriteln!(self.src, "fn {builtin}{def}");
         }

@@ -10,7 +10,7 @@ use heck::*;
 use wit_bindgen_core::abi::{Bindgen, Instruction, LiftLower, WasmType};
 use wit_bindgen_core::{dealias, uwrite, uwriteln, wit_parser::*, Source};
 
-use crate::{int_repr, to_mbt_ident, Direction, interface, MbtFlagsRepr};
+use crate::{int_repr, interface, to_mbt_ident, Direction, MbtFlagsRepr};
 
 pub(super) struct FunctionBindgen<'a, 'b> {
     pub gen: &'b mut interface::InterfaceGenerator<'a>,
@@ -235,7 +235,6 @@ impl Bindgen for FunctionBindgen<'_, '_> {
     }
 
     fn return_pointer(&mut self, size: usize, align: usize) -> String {
-
         // Imports get a per-function return area to facilitate using the
         // stack whereas exports use a per-module return area to cut down on
         // stack usage. Note that for imports this also facilitates "adapter
@@ -416,7 +415,7 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                                 format!("{name}::from_handle({op} as u32)")
                             }
                         }
-                    } else if prefix == "" {
+                    } else if prefix.is_empty() {
                         let name = self.gen.type_path(resource, true);
                         format!("{name}::from_handle({op} as u32)")
                     } else {
@@ -630,40 +629,34 @@ impl Bindgen for FunctionBindgen<'_, '_> {
                 results.push(len);
             }
 
-            Instruction::ListCanonLift { element, .. } => {
-                match element {
-                    Type::Bool => todo!(),
-                    Type::U8 => {
-                        let bytes = format!("bytes{}", self.tmp());
-                        uwriteln!(
-                            self.src,
-                            "let {bytes} = Bytes::make({}, 0)",
-                            operands[1],
-                        );
-                        self.gen.gen.imported_builtins.insert("_rael_bytes_data");
-                        self.gen.gen.imported_builtins.insert("_rael_memory_copy");
-                        uwriteln!(
-                            self.src,
-                            "_rael_memory_copy(_rael_bytes_data({bytes}), {}, {})",
-                            operands[0],
-                            operands[1],
-                        );
-                        results.push(bytes);
-                    }
-                    Type::U16 => todo!(),
-                    Type::U32 => todo!(),
-                    Type::U64 => todo!(),
-                    Type::S8 => todo!(),
-                    Type::S16 => todo!(),
-                    Type::S32 => todo!(),
-                    Type::S64 => todo!(),
-                    Type::Float32 => todo!(),
-                    Type::Float64 => todo!(),
-                    Type::Char => todo!(),
-                    Type::String => todo!(),
-                    Type::Id(_) => todo!(),
+            Instruction::ListCanonLift { element, .. } => match element {
+                Type::Bool => todo!(),
+                Type::U8 => {
+                    let bytes = format!("bytes{}", self.tmp());
+                    uwriteln!(self.src, "let {bytes} = Bytes::make({}, 0)", operands[1],);
+                    self.gen.gen.imported_builtins.insert("_rael_bytes_data");
+                    self.gen.gen.imported_builtins.insert("_rael_memory_copy");
+                    uwriteln!(
+                        self.src,
+                        "_rael_memory_copy(_rael_bytes_data({bytes}), {}, {})",
+                        operands[0],
+                        operands[1],
+                    );
+                    results.push(bytes);
                 }
-            }
+                Type::U16 => todo!(),
+                Type::U32 => todo!(),
+                Type::U64 => todo!(),
+                Type::S8 => todo!(),
+                Type::S16 => todo!(),
+                Type::S32 => todo!(),
+                Type::S64 => todo!(),
+                Type::Float32 => todo!(),
+                Type::Float64 => todo!(),
+                Type::Char => todo!(),
+                Type::String => todo!(),
+                Type::Id(_) => todo!(),
+            },
 
             Instruction::StringLower { realloc } => {
                 if realloc.is_none() {
@@ -677,20 +670,23 @@ impl Bindgen for FunctionBindgen<'_, '_> {
 
             Instruction::StringLift => {
                 let str = format!("str{}", self.tmp());
-                self.gen.gen.imported_builtins.insert("_mbt_unsafe_make_string");
+                self.gen
+                    .gen
+                    .imported_builtins
+                    .insert("_mbt_unsafe_make_string");
                 uwriteln!(
-                            self.src,
-                            "let {str} = _mbt_unsafe_make_string({}, 0)",
-                            operands[1],
-                        );
+                    self.src,
+                    "let {str} = _mbt_unsafe_make_string({}, 0)",
+                    operands[1],
+                );
                 self.gen.gen.imported_builtins.insert("_mbt_string_data");
                 self.gen.gen.imported_builtins.insert("_rael_memory_copy");
                 uwriteln!(
-                            self.src,
-                            "_rael_memory_copy(_mbt_string_data({str}), {}, {})",
-                            operands[0],
-                            operands[1],
-                        );
+                    self.src,
+                    "_rael_memory_copy(_mbt_string_data({str}), {}, {})",
+                    operands[0],
+                    operands[1],
+                );
                 results.push(str);
             }
 
@@ -773,9 +769,9 @@ impl Bindgen for FunctionBindgen<'_, '_> {
 
             Instruction::CallWasm { sig, .. } => {
                 let mut call = self.import_ffi_name.clone().unwrap();
-                call.push_str("(");
+                call.push('(');
                 call.push_str(&operands.join(", "));
-                call.push_str(")");
+                call.push(')');
 
                 if sig.results.is_empty() {
                     self.push_str(&call);

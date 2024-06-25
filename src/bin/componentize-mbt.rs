@@ -114,8 +114,7 @@ fn build(world: Option<&str>) -> Result<()> {
                 Ok(None)
             }
         })
-        .map(|r| r.transpose())
-        .flatten();
+        .flat_map(|r| r.transpose());
     let pkg_name = iter.next().transpose()?.ok_or_else(|| {
         anyhow::anyhow!("At least one MoonBit package must have is_main set to true.")
     })?;

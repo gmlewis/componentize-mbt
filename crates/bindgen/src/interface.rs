@@ -108,7 +108,7 @@ impl InterfaceGenerator<'_> {
                     let resource_name = self.resolve.types[id].name.as_deref().unwrap();
                     let camel = resource_name.to_upper_camel_case();
                     let trait_name = format!("Guest{camel}");
-                    let export_key = self.export_key(Some(&resource_name));
+                    let export_key = self.export_key(Some(resource_name));
                     (trait_name, export_key)
                 }
             };
@@ -159,7 +159,7 @@ impl InterfaceGenerator<'_> {
         for (trait_name, methods) in traits.values() {
             uwriteln!(self.src, "pub trait {trait_name} {{");
             for method in methods {
-                self.src.push_str(&method);
+                self.src.push_str(method);
             }
             uwriteln!(self.src, "}}");
             uwriteln!(self.src, "");
@@ -216,7 +216,7 @@ impl InterfaceGenerator<'_> {
     }
 
     pub fn start_append_submodule(&mut self, name: &WorldKey) -> Vec<ModuleName> {
-        crate::compute_module_path(name, &self.resolve, !self.in_import)
+        crate::compute_module_path(name, self.resolve, !self.in_import)
     }
 
     pub fn finish_append_submodule(mut self, module_path: Vec<ModuleName>) {
@@ -1501,7 +1501,7 @@ impl InterfaceGenerator<'_> {
         if *remapped {
             let mut path_to_root = self.path_to_root();
             path_to_root.push_str(path);
-            return Some(path_to_root);
+            Some(path_to_root)
         } else {
             let mut full_path = String::new();
             if let Identifier::Interface(cur, name) = self.identifier {
@@ -1520,7 +1520,7 @@ impl InterfaceGenerator<'_> {
                     }
                 }
             }
-            full_path.push_str(&path);
+            full_path.push_str(path);
             Some(full_path)
         }
     }

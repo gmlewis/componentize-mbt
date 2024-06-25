@@ -100,86 +100,83 @@ pub fn componentize(wat: &str, resolve: Resolve, world: WorldId) -> anyhow::Resu
     let buf = ParseBuffer::new(wat)?;
     let mut ast = wast::parser::parse(&buf)?;
     let mut start = None;
-    match &mut ast {
-        Wat::Module(Module {
-            kind: ModuleKind::Text(ref mut fields),
-            ..
-        }) => {
-            fields.retain_mut(|field| match field {
-                ModuleField::Import(Import {
-                    module: "spectest", ..
-                }) => false,
-                ModuleField::Memory(Memory {
-                    exports: InlineExport { names },
-                    ..
-                }) if names == &vec!["moonbit.memory"] => {
-                    names[0] = "memory";
-                    true
-                }
-                ModuleField::Func(Func {
-                    kind: FuncKind::Inline { expression, .. },
-                    exports,
-                    ty,
-                    ..
-                }) => {
-                    if exports.names.len() == 1 {
-                        if let Some((_, key)) = exports.names[0].split_once("::") {
-                            if let Some((symbol, has_rv)) = exported_symbols.get(key) {
-                                exports.names[0] = symbol;
 
-                                // 似乎是 MoonBit 的一个 bug —— pub fn 没有返回值，但 WASM func 却返回 i32
-                                if !has_rv {
-                                    if let Some(ty) = &mut ty.inline {
-                                        if ty.results.len() == 1 {
-                                            ty.results = Box::new([]);
-                                            let mut instrs = Default::default();
-                                            mem::swap(&mut expression.instrs, &mut instrs);
-                                            let mut instrs = instrs.into_vec();
-                                            instrs.push(Instruction::Drop);
-                                            expression.instrs = instrs.into();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    for instr in expression.instrs.iter() {
-                        match instr {
-                            Instruction::Call(Index::Id(id)) => {
-                                let name = id.name();
-                                if !builtins.contains_key(name) {
-                                    if let Some((name, imp)) = impls.remove_entry(name) {
-                                        builtins.insert(name, imp);
-                                    }
-                                }
-                                if name == "rael.malloc" {
-                                    if let Some(realloc) = realloc.take() {
-                                        builtins.insert(name, realloc);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    true
-                }
-                ModuleField::Export(e) if e.name == "_start" => {
-                    start = Some(e.item);
-                    false
-                }
-                _ => true,
-            });
-
-            for buf in builtins.values() {
-                let field: ModuleField = wast::parser::parse(buf)?;
-                fields.push(field);
+    if let Wat::Module(Module {
+        kind: ModuleKind::Text(ref mut fields),
+        ..
+    }) = &mut ast
+    {
+        fields.retain_mut(|field| match field {
+            ModuleField::Import(Import {
+                module: "spectest", ..
+            }) => false,
+            ModuleField::Memory(Memory {
+                exports: InlineExport { names },
+                ..
+            }) if names == &vec!["moonbit.memory"] => {
+                names[0] = "memory";
+                true
             }
-            fields.push(ModuleField::Start(start.expect("_start")));
+            ModuleField::Func(Func {
+                kind: FuncKind::Inline { expression, .. },
+                exports,
+                ty,
+                ..
+            }) => {
+                if exports.names.len() == 1 {
+                    if let Some((_, key)) = exports.names[0].split_once("::") {
+                        if let Some((symbol, has_rv)) = exported_symbols.get(key) {
+                            exports.names[0] = symbol;
+
+                            // This seems to be a bug in MoonBit - pub fn has no return value, but the WASM func returns i32
+                            // This was fixed in the 2024-06-25 version of the MonnBit compiler.
+                            if !has_rv {
+                                if let Some(ty) = &mut ty.inline {
+                                    if ty.results.len() == 1 {
+                                        ty.results = Box::new([]);
+                                        let mut instrs = Default::default();
+                                        mem::swap(&mut expression.instrs, &mut instrs);
+                                        let mut instrs = instrs.into_vec();
+                                        instrs.push(Instruction::Drop);
+                                        expression.instrs = instrs.into();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for instr in expression.instrs.iter() {
+                    if let Instruction::Call(Index::Id(id)) = instr {
+                        let name = id.name();
+                        if !builtins.contains_key(name) {
+                            if let Some((name, imp)) = impls.remove_entry(name) {
+                                builtins.insert(name, imp);
+                            }
+                        }
+                        if name == "rael.malloc" {
+                            if let Some(realloc) = realloc.take() {
+                                builtins.insert(name, realloc);
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            ModuleField::Export(e) if e.name == "_start" => {
+                start = Some(e.item);
+                false
+            }
+            _ => true,
+        });
+
+        for buf in builtins.values() {
+            let field: ModuleField = wast::parser::parse(buf)?;
+            fields.push(field);
         }
-        _ => {}
+        fields.push(ModuleField::Start(start.expect("_start")));
     }
 
     let mut buf = ast.encode()?;
     embed_component_metadata(&mut buf, &resolve, world, StringEncoding::UTF8)?;
-    Ok(ComponentEncoder::default().module(&buf)?.encode()?)
+    ComponentEncoder::default().module(&buf)?.encode()
 }
