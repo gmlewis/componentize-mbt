@@ -1,0 +1,13 @@
+package fantix:examples;
+
+interface stdio {
+  // Print a line of text to standard output
+  println: func(line: string);
+}
+
+world basic {
+  import stdio;
+
+  // Greet a specified person
+  export greet: func(name: string);
+}

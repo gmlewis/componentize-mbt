@@ -1,0 +1,11 @@
+{
+  "name": "fantix/component-extism-greet-example",
+  "version": "0.1.0",
+  "deps": {
+    "gmlewis/moonbit-pdk": "0.12.0"
+  },
+  "readme": "README.md",
+  "repository": "",
+  "license": "MulanPSL-2.0",
+  "keywords": []
+}

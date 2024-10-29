@@ -1,4 +1,4 @@
-# componentize-mbt
+# componentize-mbt - ARCHIVED
 
 This is a translation from Chinese to English of this repo: https://gitee.com/fantix/componentize-mbt
 

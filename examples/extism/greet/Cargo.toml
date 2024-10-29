@@ -1,0 +1,10 @@
+[package]
+name = "greet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.79"
+wasmtime = { version = "17.0.0", features = ["component-model"] }
+
+[workspace]
